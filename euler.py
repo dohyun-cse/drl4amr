@@ -5,7 +5,7 @@
       See c++ version in the MFEM library for more detail 
 '''
 # from ex18_common import FE_Evolution, InitialCondition, RiemannSolver, DomainIntegrator, FaceIntegrator
-from mfem.ser import DGHyperbolicConservationLaws, EulerElementFormIntegrator, EulerFaceFormIntegrator, RusanovFlux
+from mfem.ser import EulerElementFormIntegrator, EulerFaceFormIntegrator, RusanovFlux
 from mfem.common.arg_parser import ArgParser
 import mfem.ser as mfem
 from mfem.ser import intArray
@@ -13,10 +13,54 @@ from os.path import expanduser, join, dirname
 import numpy as np
 from numpy import sqrt, pi, cos, sin, hypot, arctan2
 from scipy.special import erfc
+from hcl_common import PyDGHyperbolicConservationLaws
 
 # Equation constant parameters.(using globals to share them with ex18_common)
 # import ex18_common
 
+class InitCond(mfem.VectorPyCoefficient):
+    def EvalValue(self, x):
+        # "Fast vortex"
+        radius = 0.2
+        Minf = 0.5
+        beta = 1. / 5.
+
+        xc = 0.0
+        yc = 0.0
+        # Nice units
+        vel_inf = 1.
+        den_inf = 1.
+
+        specific_heat_ratio = 1.4
+        gas_constant = 1.0
+
+        pres_inf = (den_inf / specific_heat_ratio) * \
+            (vel_inf / Minf) * (vel_inf / Minf)
+        temp_inf = pres_inf / (den_inf * gas_constant)
+
+        r2rad = 0.0
+        r2rad += (x[0] - xc) * (x[0] - xc)
+        r2rad += (x[1] - yc) * (x[1] - yc)
+        r2rad /= (radius * radius)
+
+        shrinv1 = 1.0 / (specific_heat_ratio - 1.)
+
+        velX = vel_inf * \
+            (1 - beta * (x[1] - yc) / radius * np.exp(-0.5 * r2rad))
+        velY = vel_inf * beta * (x[0] - xc) / radius * np.exp(-0.5 * r2rad)
+        vel2 = velX * velX + velY * velY
+
+        specific_heat = gas_constant * specific_heat_ratio * shrinv1
+
+        temp = temp_inf - (0.5 * (vel_inf * beta) *
+                            (vel_inf * beta) / specific_heat * np.exp(-r2rad))
+
+        den = den_inf * (temp/temp_inf)**shrinv1
+        pres = den * gas_constant * temp
+        energy = shrinv1 * pres / den + 0.5 * vel2
+
+        return [den, den * velX, den * velY, den * energy]
+        
 
 def run(problem=1,
         ref_levels=1,
@@ -34,8 +78,6 @@ def run(problem=1,
     gas_constant = 1.0
     # 2. Read the mesh from the given mesh file. This example requires a 2D
     #    periodic mesh, such as ../data/periodic-square.mesh.
-    if not meshfile:
-        meshfile = 'periodic-square-4x4.mesh'
     meshfile = expanduser(join(dirname(__file__), 'mesh', meshfile))
     mesh = mfem.Mesh(meshfile, 1, 1)
     dim = mesh.Dimension()
@@ -76,32 +118,32 @@ def run(problem=1,
     vfes = mfem.FiniteElementSpace(
         mesh, fec, num_equations, mfem.Ordering.byNODES)
 
-    # assert fes.GetOrdering() == mfem.Ordering.byNODES, "Ordering must be byNODES"
-    # print("Number of unknowns: " + str(vfes.GetVSize()))
+    assert fes.GetOrdering() == mfem.Ordering.byNODES, "Ordering must be byNODES"
+    print("Number of unknowns: " + str(vfes.GetVSize()))
 
     # # 6. Define the initial conditions, save the corresponding mesh and grid
     # #    functions to a file. This can be opened with GLVis with the -gc option.
     # #    The solution u has components {density, x-momentum, y-momentum, energy}.
     # #    These are stored contiguously in the BlockVector u_block.
 
-    # offsets = [k*vfes.GetNDofs() for k in range(num_equations+1)]
-    # offsets = mfem.intArray(offsets)
-    # u_block = mfem.BlockVector(offsets)
-    # mom = mfem.GridFunction(dfes, u_block,  offsets[1])
+    offsets = [k*vfes.GetNDofs() for k in range(num_equations+1)]
+    offsets = mfem.intArray(offsets)
+    u_block = mfem.BlockVector(offsets)
+    mom = mfem.GridFunction(dfes, u_block,  offsets[1])
 
     # #
     # #  Define coefficient using VecotrPyCoefficient and PyCoefficient
     # #  A user needs to define EvalValue method
     # #
-    # u0 = InitialCondition(num_equations)
-    # sol = mfem.GridFunction(vfes, u_block.GetData())
-    # sol.ProjectCoefficient(u0)
+    u0 = InitCond(num_equations)
+    sol = mfem.GridFunction(vfes, u_block.GetData())
+    sol.ProjectCoefficient(u0)
 
-    mesh.Print("vortex.mesh", 8)
-    for k in range(num_equations):
-        uk = mfem.GridFunction(fes, u_block.GetBlock(k).GetData())
-        sol_name = "vortex-" + str(k) + "-init.gf"
-        uk.Save(sol_name, 8)
+    # mesh.Print("vortex.mesh", 8)
+    # for k in range(num_equations):
+    #     uk = mfem.GridFunction(fes, u_block.GetBlock(k).GetData())
+    #     sol_name = "vortex-" + str(k) + "-init.gf"
+    #     uk.Save(sol_name, 8)
 
     #  7. Set up the nonlinear form corresponding to the DG discretization of the
     #     flux divergence, and assemble the corresponding mass matrix.
@@ -109,7 +151,7 @@ def run(problem=1,
     faceFlux = RusanovFlux()
     faceForm = EulerFaceFormIntegrator(faceFlux, dim, specific_heat_ratio, gas_constant, IntOrderOffset)
     nonlinForm = mfem.NonlinearForm(vfes)
-    euler = DGHyperbolicConservationLaws(vfes, nonlinForm, elementForm, faceForm, num_equations)
+    euler = PyDGHyperbolicConservationLaws(vfes, nonlinForm, elementForm, faceForm, num_equations)
     
     if (visualization):
         sout = mfem.socketstream("localhost", 19916)
@@ -131,10 +173,10 @@ def run(problem=1,
     if (cfl > 0):
         #  Find a safe dt, using a temporary vector. Calling Mult() computes the
         #  maximum char speed at all quadrature points on all faces.
-        z = mfem.Vector(A.Width())
-        A.Mult(sol, z)
+        z = mfem.Vector(euler.Width())
+        euler.Mult(sol, z)
 
-        dt = cfl * hmin / ex18_common.max_char_speed / (2*order+1)
+        dt = cfl * hmin / euler.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder()+1)
 
     # Integrate in time.
     done = False
@@ -145,13 +187,14 @@ def run(problem=1,
         t, dt_real = ode_solver.Step(sol, t, dt_real)
 
         if (cfl > 0):
-            dt = cfl * hmin / ex18_common.max_char_speed / (2*order+1)
+            dt = cfl * hmin / euler.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder()+1)
         ti = ti+1
         done = (t >= t_final - 1e-8*dt)
         if (done or ti % vis_steps == 0):
             print("time step: " + str(ti) + ", time: " + "{:g}".format(t))
             if (visualization):
-                sout << "solution\n" << mesh << mom << flush
+                sout << "solution\n" << mesh << mom
+                sout.flush()
 
     #  9. Save the final solution. This output can be viewed later using GLVis:
     #    "glvis -m vortex.mesh -g vortex-1-final.gf".
@@ -171,14 +214,14 @@ if __name__ == "__main__":
 
     parser = ArgParser(description='Ex18')
     parser.add_argument('-m', '--mesh',
-                        default='periodic-square.mesh',
+                        default='periodic-square-4x4.mesh',
                         action='store', type=str,
                         help='Mesh file to use.')
     parser.add_argument('-p', '--problem',
                         action='store', default=1, type=int,
                         help='Problem setup to use. See options in velocity_function().')
     parser.add_argument('-r', '--refine',
-                        action='store', default=1, type=int,
+                        action='store', default=2, type=int,
                         help="Number of times to refine the mesh uniformly.")
     parser.add_argument('-o', '--order',
                         action='store', default=3, type=int,
@@ -197,7 +240,7 @@ if __name__ == "__main__":
                         action='store', default=0.3, type=float,
                         help="CFL number for timestep calculation.")
     parser.add_argument('-vis', '--visualization',
-                        action='store_true',
+                        action='store_true', default=True,
                         help='Enable GLVis visualization')
     parser.add_argument('-vs', '--visualization-steps',
                         action='store', default=50, type=float,
