@@ -15,9 +15,6 @@ from numpy import sqrt, pi, cos, sin, hypot, arctan2, exp
 from scipy.special import erfc
 from hcl_common import PyDGHyperbolicConservationLaws
 
-# Equation constant parameters.(using globals to share them with ex18_common)
-# import ex18_common
-
 class InitCond(mfem.VectorPyCoefficient):
     def EvalValue(self, x):
         maxval = 10.0
