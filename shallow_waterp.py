@@ -20,22 +20,26 @@ num_procs = MPI.COMM_WORLD.size
 myid = MPI.COMM_WORLD.rank
 smyid = '{:0>6d}'.format(myid)
 
-class InitCond(mfem.VectorPyCoefficient):
-    def EvalValue(self, x):
-        maxval = 10.0
-        minval = 6.0
-        r_sigma = 0.05
-        xc = 0.0
-        yc = 0.0
-        dx = x[0] - xc
-        dy = x[1] - yc
-
-        return [(maxval - minval) * exp(-0.5 * r_sigma * (dx * dx + dy * dy)) + minval, 0.0, 0.0]
+@mfem.jit.vector(vdim=3, interface="c++")
+def InitCond(x, out):
+    maxval = 10.0
+    minval = 6.0
+    r_sigma = 0.05
+    xc = 0.0
+    yc = 0.0
+    dx = x[0] - xc
+    dy = x[1] - yc
+    
+    out[0] = (maxval - minval) * exp(-0.5 * r_sigma * (dx * dx + dy * dy)) + minval
+    out[1] = 0.0
+    out[2] = 0.0
     
     
-class MeshTransformer(mfem.VectorPyCoefficient):
-    def EvalValue(self, x):
-        return [x[0]*25.0, x[1]*25.0]
+@mfem.jit.vector(vdim=2, interface="c++")
+def MeshTransform(x, out):
+    
+    out[0] = x[0]*25.0
+    out[1] = x[1]*25.0
         
 
 def run(problem=1,
@@ -59,7 +63,7 @@ def run(problem=1,
     mesh = mfem.Mesh(meshfile, 1, 1)
     dim = mesh.Dimension()
     num_equations = dim + 1
-    mesh.Transform(MeshTransformer(2))
+    mesh.Transform(MeshTransform)
 
     # 3. Define the ODE solver used for time integration. Several explicit
     #    Runge-Kutta methods are available.
@@ -119,9 +123,8 @@ def run(problem=1,
     # #  Define coefficient using VecotrPyCoefficient and PyCoefficient
     # #  A user needs to define EvalValue method
     # #
-    u0 = InitCond(num_equations)
     sol = mfem.ParGridFunction(vfes, u_block.GetData())
-    sol.ProjectCoefficient(u0)
+    sol.ProjectCoefficient(InitCond)
 
     # mesh.Print("vortex.mesh", 8)
     # for k in range(num_equations):
@@ -142,6 +145,7 @@ def run(problem=1,
         sout.precision(8)
         sout.send_text("parallel " + str(num_procs) + " " + str(myid))
         sout.send_solution(pmesh, height)
+        sout << "pause\n"
         sout.flush()
         if myid == 0:
             print("GLVis visualization paused.")
@@ -195,7 +199,7 @@ def run(problem=1,
         print(" done")
     # 10. Compute the L2 solution error summed for all components.
     if (t_final == 2.0):
-        error = sol.ComputeLpError(2., u0)
+        error = sol.ComputeLpError(2., InitCond)
         if myid == 0:
             print("Solution error: " + str(error))
 
@@ -214,7 +218,7 @@ if __name__ == "__main__":
                         action='store', default=0, type=int,
                         help="Number of times to refine the mesh uniformly before parallel.")
     parser.add_argument('-rp', '--refine_parallel',
-                        action='store', default=1, type=int,
+                        action='store', default=2, type=int,
                         help="Number of times to refine the mesh uniformly after parallel.")
     parser.add_argument('-o', '--order',
                         action='store', default=3, type=int,
@@ -224,7 +228,7 @@ if __name__ == "__main__":
                         help="ODE solver: 1 - Forward Euler,\n\t" +
                         "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6.")
     parser.add_argument('-tf', '--t_final',
-                        action='store', default=2.0, type=float,
+                        action='store', default=10.0, type=float,
                         help="Final time; start time is 0.")
     parser.add_argument("-dt", "--time_step",
                         action='store', default=-0.01, type=float,

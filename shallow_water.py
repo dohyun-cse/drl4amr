@@ -15,22 +15,26 @@ from numpy import sqrt, pi, cos, sin, hypot, arctan2, exp
 from scipy.special import erfc
 from hcl_common import PyDGHyperbolicConservationLaws
 
-class InitCond(mfem.VectorPyCoefficient):
-    def EvalValue(self, x):
-        maxval = 10.0
-        minval = 6.0
-        r_sigma = 0.05
-        xc = 0.0
-        yc = 0.0
-        dx = x[0] - xc
-        dy = x[1] - yc
-
-        return [(maxval - minval) * exp(-0.5 * r_sigma * (dx * dx + dy * dy)) + minval, 0.0, 0.0]
+@mfem.jit.vector(vdim=3, interface="c++")
+def InitCond(x, out):
+    maxval = 10.0
+    minval = 6.0
+    r_sigma = 0.05
+    xc = 0.0
+    yc = 0.0
+    dx = x[0] - xc
+    dy = x[1] - yc
+    
+    out[0] = (maxval - minval) * exp(-0.5 * r_sigma * (dx * dx + dy * dy)) + minval
+    out[1] = 0.0
+    out[2] = 0.0
     
     
-class MeshTransformer(mfem.VectorPyCoefficient):
-    def EvalValue(self, x):
-        return [x[0]*25.0, x[1]*25.0]
+@mfem.jit.vector(vdim=2, interface="c++")
+def MeshTransform(x, out):
+    
+    out[0] = x[0]*25.0
+    out[1] = x[1]*25.0
 
 def run(problem=1,
         ref_levels=1,
@@ -51,7 +55,7 @@ def run(problem=1,
     mesh = mfem.Mesh(meshfile, 1, 1)
     dim = mesh.Dimension()
     num_equations = dim + 1
-    mesh.Transform(MeshTransformer(2))
+    mesh.Transform(MeshTransform)
 
     # 3. Define the ODE solver used for time integration. Several explicit
     #    Runge-Kutta methods are available.
@@ -105,9 +109,8 @@ def run(problem=1,
     # #  Define coefficient using VecotrPyCoefficient and PyCoefficient
     # #  A user needs to define EvalValue method
     # #
-    u0 = InitCond(num_equations)
     sol = mfem.GridFunction(vfes, u_block.GetData())
-    sol.ProjectCoefficient(u0)
+    sol.ProjectCoefficient(InitCond)
 
     # mesh.Print("vortex.mesh", 8)
     # for k in range(num_equations):
