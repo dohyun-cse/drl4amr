@@ -5,7 +5,7 @@
       See c++ version in the MFEM library for more detail 
 '''
 # from ex18_common import FE_Evolution, InitialCondition, RiemannSolver, DomainIntegrator, FaceIntegrator
-from mfem.ser import EulerElementFormIntegrator, EulerFaceFormIntegrator, RusanovFlux
+from mfem.ser import getEulerSystem, RusanovFlux
 from mfem.common.arg_parser import ArgParser
 import mfem.ser as mfem
 from mfem.ser import intArray
@@ -18,49 +18,51 @@ from hcl_common import PyDGHyperbolicConservationLaws
 # Equation constant parameters.(using globals to share them with ex18_common)
 # import ex18_common
 
-class InitCond(mfem.VectorPyCoefficient):
-    def EvalValue(self, x):
-        # "Fast vortex"
-        radius = 0.2
-        Minf = 0.5
-        beta = 1. / 5.
+@mfem.jit.vector(vdim=4, interface="c++")
+def InitCond(x, out):
+    # "Fast vortex"
+    radius = 0.2
+    Minf = 0.5
+    beta = 1. / 5.
 
-        xc = 0.0
-        yc = 0.0
-        # Nice units
-        vel_inf = 1.
-        den_inf = 1.
+    xc = 0.0
+    yc = 0.0
+    # Nice units
+    vel_inf = 1.
+    den_inf = 1.
 
-        specific_heat_ratio = 1.4
-        gas_constant = 1.0
+    specific_heat_ratio = 1.4
+    gas_constant = 1.0
 
-        pres_inf = (den_inf / specific_heat_ratio) * \
-            (vel_inf / Minf) * (vel_inf / Minf)
-        temp_inf = pres_inf / (den_inf * gas_constant)
+    pres_inf = (den_inf / specific_heat_ratio) * \
+        (vel_inf / Minf) * (vel_inf / Minf)
+    temp_inf = pres_inf / (den_inf * gas_constant)
 
-        r2rad = 0.0
-        r2rad += (x[0] - xc) * (x[0] - xc)
-        r2rad += (x[1] - yc) * (x[1] - yc)
-        r2rad /= (radius * radius)
+    r2rad = 0.0
+    r2rad += (x[0] - xc) * (x[0] - xc)
+    r2rad += (x[1] - yc) * (x[1] - yc)
+    r2rad /= (radius * radius)
 
-        shrinv1 = 1.0 / (specific_heat_ratio - 1.)
+    shrinv1 = 1.0 / (specific_heat_ratio - 1.)
 
-        velX = vel_inf * \
-            (1 - beta * (x[1] - yc) / radius * np.exp(-0.5 * r2rad))
-        velY = vel_inf * beta * (x[0] - xc) / radius * np.exp(-0.5 * r2rad)
-        vel2 = velX * velX + velY * velY
+    velX = vel_inf * \
+        (1 - beta * (x[1] - yc) / radius * np.exp(-0.5 * r2rad))
+    velY = vel_inf * beta * (x[0] - xc) / radius * np.exp(-0.5 * r2rad)
+    vel2 = velX * velX + velY * velY
 
-        specific_heat = gas_constant * specific_heat_ratio * shrinv1
+    specific_heat = gas_constant * specific_heat_ratio * shrinv1
 
-        temp = temp_inf - (0.5 * (vel_inf * beta) *
-                            (vel_inf * beta) / specific_heat * np.exp(-r2rad))
+    temp = temp_inf - (0.5 * (vel_inf * beta) *
+                        (vel_inf * beta) / specific_heat * np.exp(-r2rad))
 
-        den = den_inf * (temp/temp_inf)**shrinv1
-        pres = den * gas_constant * temp
-        energy = shrinv1 * pres / den + 0.5 * vel2
-
-        return [den, den * velX, den * velY, den * energy]
-        
+    den = den_inf * (temp/temp_inf)**shrinv1
+    pres = den * gas_constant * temp
+    energy = shrinv1 * pres / den + 0.5 * vel2
+    
+    out[0] = den
+    out[1] = den*velX
+    out[2] = den*velY
+    out[3] = den*energy
 
 def run(problem=1,
         ref_levels=1,
@@ -135,9 +137,8 @@ def run(problem=1,
     # #  Define coefficient using VecotrPyCoefficient and PyCoefficient
     # #  A user needs to define EvalValue method
     # #
-    u0 = InitCond(num_equations)
     sol = mfem.GridFunction(vfes, u_block.GetData())
-    sol.ProjectCoefficient(u0)
+    sol.ProjectCoefficient(InitCond)
 
     # mesh.Print("vortex.mesh", 8)
     # for k in range(num_equations):
@@ -147,11 +148,12 @@ def run(problem=1,
 
     #  7. Set up the nonlinear form corresponding to the DG discretization of the
     #     flux divergence, and assemble the corresponding mass matrix.
-    elementForm = EulerElementFormIntegrator(dim, specific_heat_ratio, gas_constant, IntOrderOffset)
-    faceFlux = RusanovFlux()
-    faceForm = EulerFaceFormIntegrator(faceFlux, dim, specific_heat_ratio, gas_constant, IntOrderOffset)
-    nonlinForm = mfem.NonlinearForm(vfes)
-    euler = PyDGHyperbolicConservationLaws(vfes, nonlinForm, elementForm, faceForm, num_equations)
+    numericalFlux = RusanovFlux()
+    euler = getEulerSystem(vfes, numericalFlux, specific_heat_ratio, gas_constant, IntOrderOffset)
+    # elementForm = EulerElementFormIntegrator(dim, specific_heat_ratio, gas_constant, IntOrderOffset)
+    # faceForm = EulerFaceFormIntegrator(faceFlux, dim, specific_heat_ratio, gas_constant, IntOrderOffset)
+    # nonlinForm = NonlinearForm(vfes)
+    # euler = PyDGHyperbolicConservationLaws(vfes, nonlinForm, elementForm, faceForm, num_equations)
     
     if (visualization):
         sout = mfem.socketstream("localhost", 19916)
@@ -187,6 +189,7 @@ def run(problem=1,
         t, dt_real = ode_solver.Step(sol, t, dt_real)
 
         if (cfl > 0):
+            mesh.GetElementsArray
             dt = cfl * hmin / euler.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder()+1)
         ti = ti+1
         done = (t >= t_final - 1e-8*dt)
@@ -206,7 +209,7 @@ def run(problem=1,
     print(" done")
     # 10. Compute the L2 solution error summed for all components.
     if (t_final == 2.0):
-        error = sol.ComputeLpError(2., u0)
+        error = sol.ComputeLpError(2., InitCond)
         print("Solution error: " + str(error))
 
 

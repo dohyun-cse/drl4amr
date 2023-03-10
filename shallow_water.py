@@ -5,7 +5,7 @@
       See c++ version in the MFEM library for more detail 
 '''
 # from ex18_common import FE_Evolution, InitialCondition, RiemannSolver, DomainIntegrator, FaceIntegrator
-from mfem.ser import ShallowWaterElementFormIntegrator, ShallowWaterFaceFormIntegrator, RusanovFlux
+from mfem.ser import getShallowWaterEquation, RusanovFlux
 from mfem.common.arg_parser import ArgParser
 import mfem.ser as mfem
 from mfem.ser import intArray
@@ -13,7 +13,6 @@ from os.path import expanduser, join, dirname
 import numpy as np
 from numpy import sqrt, pi, cos, sin, hypot, arctan2, exp
 from scipy.special import erfc
-from hcl_common import PyDGHyperbolicConservationLaws
 
 @mfem.jit.vector(vdim=3, interface="c++")
 def InitCond(x, out):
@@ -120,12 +119,9 @@ def run(problem=1,
 
     #  7. Set up the nonlinear form corresponding to the DG discretization of the
     #     flux divergence, and assemble the corresponding mass matrix.
-    elementForm = ShallowWaterElementFormIntegrator(dim, g, IntOrderOffset)
-    faceFlux = RusanovFlux()
-    faceForm = ShallowWaterFaceFormIntegrator(faceFlux, dim, g, IntOrderOffset)
-    nonlinForm = mfem.NonlinearForm(vfes)
-    euler = PyDGHyperbolicConservationLaws(vfes, nonlinForm, elementForm, faceForm, num_equations)
-    
+    numericalFlux = RusanovFlux()
+    shallowWater = getShallowWaterEquation(vfes, numericalFlux, g, IntOrderOffset)
+        
     if (visualization):
         sout = mfem.socketstream("localhost", 19916)
         sout.precision(8)
@@ -141,15 +137,15 @@ def run(problem=1,
         hmin = min([mesh.GetElementSize(i, 1) for i in range(mesh.GetNE())])
 
     t = 0.0
-    euler.SetTime(t)
-    ode_solver.Init(euler)
+    shallowWater.SetTime(t)
+    ode_solver.Init(shallowWater)
     if (cfl > 0):
         #  Find a safe dt, using a temporary vector. Calling Mult() computes the
         #  maximum char speed at all quadrature points on all faces.
-        z = mfem.Vector(euler.Width())
-        euler.Mult(sol, z)
+        z = mfem.Vector(shallowWater.Width())
+        shallowWater.Mult(sol, z)
 
-        dt = cfl * hmin / euler.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder()+1)
+        dt = cfl * hmin / shallowWater.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder()+1)
 
     # Integrate in time.
     done = False
@@ -160,7 +156,7 @@ def run(problem=1,
         t, dt_real = ode_solver.Step(sol, t, dt_real)
 
         if (cfl > 0):
-            dt = cfl * hmin / euler.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder()+1)
+            dt = cfl * hmin / shallowWater.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder()+1)
         ti = ti+1
         done = (t >= t_final - 1e-8*dt)
         if (done or ti % vis_steps == 0):
@@ -179,7 +175,7 @@ def run(problem=1,
     print(" done")
     # 10. Compute the L2 solution error summed for all components.
     if (t_final == 2.0):
-        error = sol.ComputeLpError(2., u0)
+        error = sol.ComputeLpError(2., InitCond)
         print("Solution error: " + str(error))
 
 
@@ -197,7 +193,7 @@ if __name__ == "__main__":
                         action='store', default=2, type=int,
                         help="Number of times to refine the mesh uniformly.")
     parser.add_argument('-o', '--order',
-                        action='store', default=3, type=int,
+                        action='store', default=6, type=int,
                         help="Finite element order (polynomial degree)")
     parser.add_argument('-s', '--ode_solver',
                         action='store', default=4, type=int,
@@ -216,7 +212,7 @@ if __name__ == "__main__":
                         action='store_true', default=True,
                         help='Enable GLVis visualization')
     parser.add_argument('-vs', '--visualization-steps',
-                        action='store', default=50, type=float,
+                        action='store', default=1, type=float,
                         help="Visualize every n-th timestep.")
 
     args = parser.parse_args()

@@ -4,7 +4,7 @@
       refinement loop. 
       See c++ version in the MFEM library for more detail 
 '''
-from mfem.par import ShallowWaterElementFormIntegrator, ShallowWaterFaceFormIntegrator, RusanovFlux
+from mfem.par import getParShallowWaterEquation, RusanovFlux
 from mfem.common.arg_parser import ArgParser
 import mfem.par as mfem
 from mfem.par import intArray
@@ -12,7 +12,6 @@ from os.path import expanduser, join, dirname
 import numpy as np
 from numpy import sqrt, pi, cos, sin, hypot, arctan2, exp
 from scipy.special import erfc
-from hcl_common import PyDGHyperbolicConservationLaws
 
 
 from mpi4py import MPI
@@ -40,6 +39,49 @@ def MeshTransform(x, out):
     
     out[0] = x[0]*25.0
     out[1] = x[1]*25.0
+
+class InitCond(mfem.VectorPyCoefficient):
+    def EvalValue(self, x):
+        # "Fast vortex"
+        radius = 0.2
+        Minf = 0.5
+        beta = 1. / 5.
+
+        xc = 0.0
+        yc = 0.0
+        # Nice units
+        vel_inf = 1.
+        den_inf = 1.
+
+        specific_heat_ratio = 1.4
+        gas_constant = 1.0
+
+        pres_inf = (den_inf / specific_heat_ratio) * \
+            (vel_inf / Minf) * (vel_inf / Minf)
+        temp_inf = pres_inf / (den_inf * gas_constant)
+
+        r2rad = 0.0
+        r2rad += (x[0] - xc) * (x[0] - xc)
+        r2rad += (x[1] - yc) * (x[1] - yc)
+        r2rad /= (radius * radius)
+
+        shrinv1 = 1.0 / (specific_heat_ratio - 1.)
+
+        velX = vel_inf * \
+            (1 - beta * (x[1] - yc) / radius * np.exp(-0.5 * r2rad))
+        velY = vel_inf * beta * (x[0] - xc) / radius * np.exp(-0.5 * r2rad)
+        vel2 = velX * velX + velY * velY
+
+        specific_heat = gas_constant * specific_heat_ratio * shrinv1
+
+        temp = temp_inf - (0.5 * (vel_inf * beta) *
+                            (vel_inf * beta) / specific_heat * np.exp(-r2rad))
+
+        den = den_inf * (temp/temp_inf)**shrinv1
+        pres = den * gas_constant * temp
+        energy = shrinv1 * pres / den + 0.5 * vel2
+
+        return [den, den * velX, den * velY, den * energy]
         
 
 def run(problem=1,
@@ -54,16 +96,13 @@ def run(problem=1,
         visualization=True,
         vis_steps=50,
         meshfile=''):
-
     g = 9.81
-
     # 2. Read the mesh from the given mesh file. This example requires a 2D
     #    periodic mesh, such as ../data/periodic-square.mesh.
     meshfile = expanduser(join(dirname(__file__), 'mesh', meshfile))
     mesh = mfem.Mesh(meshfile, 1, 1)
     dim = mesh.Dimension()
     num_equations = dim + 1
-    mesh.Transform(MeshTransform)
 
     # 3. Define the ODE solver used for time integration. Several explicit
     #    Runge-Kutta methods are available.
@@ -117,35 +156,32 @@ def run(problem=1,
     offsets = [k*vfes.GetNDofs() for k in range(num_equations+1)]
     offsets = mfem.intArray(offsets)
     u_block = mfem.BlockVector(offsets)
-    height = mfem.ParGridFunction(fes, u_block,  offsets[0])
+    mom = mfem.ParGridFunction(dfes, u_block,  offsets[1])
 
     # #
     # #  Define coefficient using VecotrPyCoefficient and PyCoefficient
     # #  A user needs to define EvalValue method
     # #
+    u0 = InitCond(num_equations)
     sol = mfem.ParGridFunction(vfes, u_block.GetData())
-    sol.ProjectCoefficient(InitCond)
+    sol.ProjectCoefficient(u0)
 
     # mesh.Print("vortex.mesh", 8)
     # for k in range(num_equations):
     #     uk = mfem.ParGridFunction(fes, u_block.GetBlock(k).GetData())
-    #     sol_name = "shallow-water-" + str(k) + "-init.gf"
+    #     sol_name = "vortex-" + str(k) + "-init.gf"
     #     uk.Save(sol_name, 8)
 
     #  7. Set up the nonlinear form corresponding to the DG discretization of the
     #     flux divergence, and assemble the corresponding mass matrix.
-    elementForm = ShallowWaterElementFormIntegrator(dim, g, IntOrderOffset)
-    faceFlux = RusanovFlux()
-    faceForm = ShallowWaterFaceFormIntegrator(faceFlux, dim, g, IntOrderOffset)
-    nonlinForm = mfem.ParNonlinearForm(vfes)
-    shallowWater = PyDGHyperbolicConservationLaws(vfes, nonlinForm, elementForm, faceForm, num_equations)
+    numericalFlux = RusanovFlux()
+    euler = getParShallowWaterEquation(vfes, numericalFlux, g, IntOrderOffset)
     
     if (visualization):
         sout = mfem.socketstream("localhost", 19916)
         sout.precision(8)
         sout.send_text("parallel " + str(num_procs) + " " + str(myid))
-        sout.send_solution(pmesh, height)
-        sout << "pause\n"
+        sout.send_solution(pmesh, mom)
         sout.flush()
         if myid == 0:
             print("GLVis visualization paused.")
@@ -158,14 +194,14 @@ def run(problem=1,
     hmin = MPI.COMM_WORLD.allreduce(my_hmin, op=MPI.MIN)
 
     t = 0.0
-    shallowWater.SetTime(t)
-    ode_solver.Init(shallowWater)
+    euler.SetTime(t)
+    ode_solver.Init(euler)
     if (cfl > 0):
         #  Find a safe dt, using a temporary vector. Calling Mult() computes the
         #  maximum char speed at all quadrature points on all faces.
-        z = mfem.Vector(shallowWater.Width())
-        shallowWater.Mult(sol, z)
-        my_dt = cfl * hmin / shallowWater.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder() + 1)
+        z = mfem.Vector(euler.Width())
+        euler.Mult(sol, z)
+        my_dt = cfl * hmin / euler.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder() + 1)
         dt = MPI.COMM_WORLD.allreduce(my_dt, op=MPI.MIN)
 
     # Integrate in time.
@@ -177,7 +213,7 @@ def run(problem=1,
         t, dt_real = ode_solver.Step(sol, t, dt_real)
 
         if (cfl > 0):
-            my_dt = cfl * hmin / shallowWater.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder() + 1)
+            my_dt = cfl * hmin / euler.getMaxCharSpeed() / (2*vfes.GetMaxElementOrder() + 1)
             dt = MPI.COMM_WORLD.allreduce(my_dt, op=MPI.MIN)
         ti = ti+1
         done = (t >= t_final - 1e-8*dt)
@@ -186,20 +222,20 @@ def run(problem=1,
                 print("time step: " + str(ti) + ", time: " + "{:g}".format(t))
             if (visualization):
                 sout.send_text("parallel " + str(num_procs) + " " + str(myid))
-                sout.send_solution(pmesh, height)
+                sout.send_solution(pmesh, mom)
                 sout.flush()
 
     #  9. Save the final solution. This output can be viewed later using GLVis:
-    #    "glvis -m vortex.mesh -g shallow-water-1-final.gf".
+    #    "glvis -m vortex.mesh -g vortex-1-final.gf".
     for k in range(num_equations):
         uk = mfem.ParGridFunction(fes, u_block.GetBlock(k).GetData())
-        sol_name = "shallow-water-" + str(k) + "-final."+smyid
+        sol_name = "euler-" + str(k) + "-final."+smyid
         uk.Save(sol_name, 8)
     if myid == 0:
         print(" done")
     # 10. Compute the L2 solution error summed for all components.
     if (t_final == 2.0):
-        error = sol.ComputeLpError(2., InitCond)
+        error = sol.ComputeLpError(2., u0)
         if myid == 0:
             print("Solution error: " + str(error))
 
@@ -228,7 +264,7 @@ if __name__ == "__main__":
                         help="ODE solver: 1 - Forward Euler,\n\t" +
                         "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6.")
     parser.add_argument('-tf', '--t_final',
-                        action='store', default=10.0, type=float,
+                        action='store', default=2.0, type=float,
                         help="Final time; start time is 0.")
     parser.add_argument("-dt", "--time_step",
                         action='store', default=-0.01, type=float,
