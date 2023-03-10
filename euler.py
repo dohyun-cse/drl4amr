@@ -13,7 +13,6 @@ from os.path import expanduser, join, dirname
 import numpy as np
 from numpy import sqrt, pi, cos, sin, hypot, arctan2
 from scipy.special import erfc
-from hcl_common import PyDGHyperbolicConservationLaws
 
 # Equation constant parameters.(using globals to share them with ex18_common)
 # import ex18_common
