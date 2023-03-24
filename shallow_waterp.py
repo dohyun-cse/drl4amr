@@ -4,7 +4,7 @@
       refinement loop. 
       See c++ version in the MFEM library for more detail 
 '''
-from mfem.par import getParShallowWaterEquation, RusanovFlux
+from mfem.par import getShallowWaterEquation, RusanovFlux
 from mfem.common.arg_parser import ArgParser
 import mfem.par as mfem
 from mfem.par import intArray
@@ -175,7 +175,7 @@ def run(problem=1,
     #  7. Set up the nonlinear form corresponding to the DG discretization of the
     #     flux divergence, and assemble the corresponding mass matrix.
     numericalFlux = RusanovFlux()
-    euler = getParShallowWaterEquation(vfes, numericalFlux, g, IntOrderOffset)
+    euler = getShallowWaterEquation(vfes, numericalFlux, g, IntOrderOffset)
     
     if (visualization):
         sout = mfem.socketstream("localhost", 19916)
