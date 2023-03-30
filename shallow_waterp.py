@@ -39,49 +39,6 @@ def MeshTransform(x, out):
     
     out[0] = x[0]*25.0
     out[1] = x[1]*25.0
-
-class InitCond(mfem.VectorPyCoefficient):
-    def EvalValue(self, x):
-        # "Fast vortex"
-        radius = 0.2
-        Minf = 0.5
-        beta = 1. / 5.
-
-        xc = 0.0
-        yc = 0.0
-        # Nice units
-        vel_inf = 1.
-        den_inf = 1.
-
-        specific_heat_ratio = 1.4
-        gas_constant = 1.0
-
-        pres_inf = (den_inf / specific_heat_ratio) * \
-            (vel_inf / Minf) * (vel_inf / Minf)
-        temp_inf = pres_inf / (den_inf * gas_constant)
-
-        r2rad = 0.0
-        r2rad += (x[0] - xc) * (x[0] - xc)
-        r2rad += (x[1] - yc) * (x[1] - yc)
-        r2rad /= (radius * radius)
-
-        shrinv1 = 1.0 / (specific_heat_ratio - 1.)
-
-        velX = vel_inf * \
-            (1 - beta * (x[1] - yc) / radius * np.exp(-0.5 * r2rad))
-        velY = vel_inf * beta * (x[0] - xc) / radius * np.exp(-0.5 * r2rad)
-        vel2 = velX * velX + velY * velY
-
-        specific_heat = gas_constant * specific_heat_ratio * shrinv1
-
-        temp = temp_inf - (0.5 * (vel_inf * beta) *
-                            (vel_inf * beta) / specific_heat * np.exp(-r2rad))
-
-        den = den_inf * (temp/temp_inf)**shrinv1
-        pres = den * gas_constant * temp
-        energy = shrinv1 * pres / den + 0.5 * vel2
-
-        return [den, den * velX, den * velY, den * energy]
         
 
 def run(problem=1,
@@ -103,6 +60,7 @@ def run(problem=1,
     mesh = mfem.Mesh(meshfile, 1, 1)
     dim = mesh.Dimension()
     num_equations = dim + 1
+    mesh.Transform(MeshTransform)
 
     # 3. Define the ODE solver used for time integration. Several explicit
     #    Runge-Kutta methods are available.
@@ -156,15 +114,14 @@ def run(problem=1,
     offsets = [k*vfes.GetNDofs() for k in range(num_equations+1)]
     offsets = mfem.intArray(offsets)
     u_block = mfem.BlockVector(offsets)
-    mom = mfem.ParGridFunction(dfes, u_block,  offsets[1])
+    height = mfem.ParGridFunction(fes, u_block,  offsets[0])
 
     # #
     # #  Define coefficient using VecotrPyCoefficient and PyCoefficient
     # #  A user needs to define EvalValue method
     # #
-    u0 = InitCond(num_equations)
     sol = mfem.ParGridFunction(vfes, u_block.GetData())
-    sol.ProjectCoefficient(u0)
+    sol.ProjectCoefficient(InitCond)
 
     # mesh.Print("vortex.mesh", 8)
     # for k in range(num_equations):
@@ -181,7 +138,14 @@ def run(problem=1,
         sout = mfem.socketstream("localhost", 19916)
         sout.precision(8)
         sout.send_text("parallel " + str(num_procs) + " " + str(myid))
-        sout.send_solution(pmesh, mom)
+        sout.send_solution(pmesh, height)
+        sout << "view 0 0\n"
+        sout << "keys jl********\n"
+        sout << "valuerange 5 8\n"
+        sout << "autoscale off\n"
+        # sout << "pause\n"
+        # sout << "valuerange 3 7\n"
+        # sout << "autoscale off\n"
         sout.flush()
         if myid == 0:
             print("GLVis visualization paused.")
@@ -222,7 +186,7 @@ def run(problem=1,
                 print("time step: " + str(ti) + ", time: " + "{:g}".format(t))
             if (visualization):
                 sout.send_text("parallel " + str(num_procs) + " " + str(myid))
-                sout.send_solution(pmesh, mom)
+                sout.send_solution(pmesh, height)
                 sout.flush()
 
     #  9. Save the final solution. This output can be viewed later using GLVis:
@@ -235,7 +199,7 @@ def run(problem=1,
         print(" done")
     # 10. Compute the L2 solution error summed for all components.
     if (t_final == 2.0):
-        error = sol.ComputeLpError(2., u0)
+        error = sol.ComputeLpError(2., InitCond)
         if myid == 0:
             print("Solution error: " + str(error))
 
@@ -264,7 +228,7 @@ if __name__ == "__main__":
                         help="ODE solver: 1 - Forward Euler,\n\t" +
                         "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6.")
     parser.add_argument('-tf', '--t_final',
-                        action='store', default=2.0, type=float,
+                        action='store', default=10.0, type=float,
                         help="Final time; start time is 0.")
     parser.add_argument("-dt", "--time_step",
                         action='store', default=-0.01, type=float,
