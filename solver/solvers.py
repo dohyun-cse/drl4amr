@@ -1,0 +1,263 @@
+import sys
+if 'mfem.ser' in sys.modules:
+    MFEM_USE_MPI = False
+    import mfem.ser as mfem
+    from mfem.ser import \
+        getAdvectionEquation, getBurgersEquation, getShallowWaterEquation, getEulerSystem, \
+        RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws
+else:
+    MFEM_USE_MPI = True
+    import mpi4py
+    import mfem.par as mfem
+    from mfem.par import \
+        getAdvectionEquation, getBurgersEquation, getShallowWaterEquation, getEulerSystem, \
+        RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws
+
+import numpy as np
+from mpi4py import MPI
+
+
+class Solver:
+    def __init__(self, mesh: mfem.Mesh, order: int, num_equations: int, refinement_mode: str, ode_solver: mfem.ODESolver, cfl, terminal_time, **kwargs):
+        self.order = order
+        self.max_order = order
+        self.num_equations = num_equations
+        self.refinement_mode = refinement_mode
+        self.sdim = mesh.Dimension()
+        self.vdim = num_equations
+        self.fec = mfem.DG_FECollection(order, self.sdim)
+        self._isParallel = False
+        if MFEM_USE_MPI:
+            if isinstance(mesh, mfem.ParMesh):
+                if not mesh.Nonconforming():
+                    raise ValueError(
+                        "The provided parallel mesh is a conforming mesh. Please provide a non-conforming parallel mesh.")
+                self._isParallel = True
+                self.fespace = mfem.ParFiniteElementSpace(
+                    self._mesh, self.fec, self.vdim)
+                self._sol = mfem.ParGridFunction(self.fespace)
+            else:
+                self.fespace = mfem.FiniteElementSpace(
+                    self._mesh, self.fec, self.vdim)
+                self._sol = mfem.GridFunction(self.fespace)
+        else:
+            self.fespace = mfem.FiniteElementSpace(
+                self._mesh, self.fec, self.vdim)
+            self._sol = mfem.GridFunction(self.fespace)
+        self.rsolver = RusanovFlux()
+        self.ode_solver = ode_solver
+        self.getSystem(kwargs)
+        self.ode_solver.Init(self.HCL)
+        self.CFL = cfl
+        self.terminal_time = terminal_time
+
+    def init(self, u0: mfem.VectorFunctionCoefficient):
+        self.t = 0.0
+        self._sol.ProjectCoefficient(u0)
+        self.initial_condition = u0
+
+    def reset(self):
+        if self._isParallel:
+            self.fespace = mfem.ParFiniteElementSpace(
+                self._initial_mesh, self.fec, self.vdim)
+            self._sol = mfem.ParGridFunction(self._fespace)
+        else:
+            self.fespace = mfem.FiniteElementSpace(
+                self._initial_mesh, self.fec, self.vdim)
+            self._sol = mfem.GridFunction(self._fespace)
+        self._sol.ProjectCoefficient(self.initial_condition)
+
+    def getSystem(self, **kwargs):
+        raise NotImplementedError(
+            "getSystem should be implemented in the subclass")
+
+    def step(self, t, target_time=None):
+        if target_time is None: # single step
+            # single step
+            dt = self.compute_timestep()
+            self.ode_solver.Step(self._sol, t, dt)
+            return
+        while t < target_time:
+            dt = self.compute_timestep()
+            real_dt = min(dt, target_time - t)
+            if real_dt < 0:
+                raise RuntimeError(
+                    f"dt is negative: Either computed time step is negative or time exceeded target time.\n\tdt = {dt}, \n\tcurrent time = {t}")
+            self.ode_solver.Step(self._sol, t, real_dt)
+            if real_dt < dt:  # if dt is different from real_dt
+                # then real_dt = target_time - t.
+                # So, update t as target_time to avoid floating point error
+                t = target_time
+            else:
+                t += dt
+
+    def compute_timestep(self):
+        dt = self.CFL * self.min_h / self._HCL.getMaxCharSpeed() / (2*self.max_order + 1)
+        if self._isParallel:
+            reduced_dt = MPI.COMM_WORLD.allreduce(dt, op=MPI.MIN)
+            dt = reduced_dt
+        return dt
+
+    def render(self, sout:mfem.socketstream):
+        gf = mfem.GridFunction(self._render_space, self._sol, self._renderer_offset*self._fespace.GetNVDofs())
+        
+
+    def refine(self, marked: mfem.intArray, coarsening: bool = False):
+        match self.refinement_mode:
+            case 'h':
+                if coarsening:
+                    self.hDerefine(marked)
+                else:
+                    self.hRefine(marked)
+            case 'p':
+                self.pRefine(marked)
+            case _:
+                raise ValueError(
+                    f"Refinement mode should be either 'h' or 'p', but {self.refinement_mode} is provided.")
+
+    def hRefine(self, marked):
+        self.update_min_h()
+        pass
+
+    def hDerefine(self, marked):
+        self.update_min_h()
+        pass
+
+    def pRefine(self, marked):
+        if self._isParallel:
+            old_fes = mfem.ParFiniteElementSpace(self.fespace)
+            old_sol = mfem.ParGridFunction(old_fes)
+        else:
+            old_fes = mfem.FiniteElementSpace(self.fespace)
+            old_sol = mfem.GridFunction(old_fes)
+        old_sol.Assign(self._sol)
+        for i in range(self._mesh.GetNE()):
+            self.fespace.SetElementOrder(i, marked[i])
+        self.fespace.Update(False)
+        self._sol.Update()
+        if self.t == 0:
+            self._sol.ProjectCoefficient(self.u0)
+        else:
+            transfer = mfem.PRefinementTransferOperator(old_fes, self.fespace)
+            transfer.Mult(old_sol, self._sol)
+        
+
+    def update_min_h(self):
+        self.min_h = min([self._mesh.GetElementSize(i, 1)
+                         for i in range(self._mesh.GetNE())])
+        if MFEM_USE_MPI and self._isParallel:
+            hmin = MPI.COMM_WORLD.allreduce(self.min_h, op=MPI.MIN)
+            self.min_h = hmin
+
+    def update_max_order(self):
+        self.max_order = self._fespace.GetMaxElementOrder()
+        if MFEM_USE_MPI and self._isParallel:
+            pmax = MPI.COMM_WORLD.allreduce(self.max_order, op=MPI.MAX, )
+            self.max_order = pmax
+
+    def init_renderer(self):
+        raise NotImplementedError(
+            "init_renderer should be implemented in the subclass")
+    
+    # PROPERTIES
+
+    @property
+    def mesh(self):
+        return self._mesh
+
+    @mesh.setter
+    def mesh(self, new_mesh: mfem.Mesh):
+        raise ValueError(
+            'Mesh should not be modified by solver.mesh = mesh. Either create a new solver, or change finite element space.')
+
+    @property
+    def fespace(self):
+        return self._fespace
+
+    @fespace.setter
+    def fespace(self, new_fespace: mfem.FiniteElementSpace | mfem.ParFiniteElementSpace):
+        if MFEM_USE_MPI:  # if parallel mfem is used
+            if self._isParallel != isinstance(new_fespace, mfem.ParFiniteElementSpace):
+                if self._isParallel:
+                    raise ValueError(
+                        'The solver is initialized with parallel mesh, but tried to overwrite FESpace with serial FESpace.')
+                else:
+                    raise ValueError(
+                        'The solver is initialized with serial mesh, but tried to overwrite FESpace with parallel FESpace.')
+        self._mesh: mfem.Mesh = new_fespace.GetMesh()
+        self._fespace = new_fespace
+        if self._isParallel:
+            self._pmesh: mfem.ParMesh = self._fespace.GetParMesh()
+            self._initial_mesh = mfem.ParMesh(self._mesh)
+        else:
+            self._initial_mesh = mfem.Mesh(self._mesh)
+        self.update_min_h()
+        self.update_max_order()
+
+    @property
+    def sol(self):
+        return self._sol
+
+    @sol.setter
+    def sol(self, gf: mfem.GridFunction | mfem.ParGridFunction):
+        if gf.FESpace() is not self.fespace:
+            raise ValueError(
+                'The provided grid function is not a function in the current finite element space.')
+        self._sol = gf
+
+    @property
+    def HCL(self):
+        return self._HCL
+
+    @HCL.setter
+    def HCL(self, new_HCL: DGHyperbolicConservationLaws):
+        self._HCL = new_HCL
+        
+    @property
+    def renderer_space(self):
+        return self._renderer_space
+    @renderer_space.setter
+    def renderer_space(self, subspace:mfem.FiniteElementSpace | mfem.ParFiniteElementSpace):
+        self._renderer_space = subspace
+
+class AdvectionSolver(Solver):
+    def getSystem(self, **kwargs):
+        self.b = kwargs.get('b')
+        self.HCL:DGHyperbolicConservationLaws = getAdvectionEquation(self._fespace, self.rsolver, self.b)
+    
+    def render(self, sout:mfem.socketstream):
+        self.sout.precision(8)
+        self.sout << "solution\n" << self._mesh << self._sol
+        self.sout.flush()
+        
+    def init_renderer(self):
+        self.sout = mfem.socketstream("localhost", 19916)
+        self.sout.send_text("view 0 0")
+        self.sout.send_text("keys jl")
+        self.sout.flush()
+
+        
+
+class EulerSolver(Solver):
+    def getSystem(self, **kwargs):
+        self.gas_constant = kwargs.get('gas_constant', 1.0)
+        self.specific_heat_ratio = kwargs.get('specific_heat_ratio', 1.4)
+        self.HCL: DGHyperbolicConservationLaws = getEulerSystem(
+            self._fespace, self.rsolver, self.specific_heat_ratio, self.gas_constant)
+
+    def render(self, sout: mfem.socketstream):
+        if self._isParallel:
+            sout.send_text("parallel " + str(MPI.COMM_WORLD.size) +
+                           " " + str(MPI.COMM_WORLD.rank))
+            sout.send_solution()
+    
+    def render(self, sout:mfem.socketstream):
+        self.sout.precision(8)
+        self.sout << "solution\n" << self._mesh << self._sol
+        self.sout.flush()
+        
+    def init_renderer(self):
+        self.sout = mfem.socketstream("localhost", 19916)
+        self.sout.send_text("view 0 0")
+        self.sout.send_text("keys jl")
+        self.sout.flush()
