@@ -7,15 +7,13 @@ if 'mfem.ser' in sys.modules:
         RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws
 else:
     MFEM_USE_MPI = True
-    import mpi4py
+    from mpi4py import MPI
     import mfem.par as mfem
     from mfem.par import \
         getAdvectionEquation, getBurgersEquation, getShallowWaterEquation, getEulerSystem, \
         RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws
 
 import numpy as np
-from mpi4py import MPI
-
 
 class Solver:
     def __init__(self, mesh: mfem.Mesh, order: int, num_equations: int, refinement_mode: str, ode_solver: mfem.ODESolver, cfl, terminal_time, **kwargs):
@@ -71,25 +69,22 @@ class Solver:
         raise NotImplementedError(
             "getSystem should be implemented in the subclass")
 
-    def step(self, t, target_time=None):
-        if target_time is None: # single step
+    def step(self, t, big_time_step=None):
+        if big_time_step is None:  # single step
             # single step
             dt = self.compute_timestep()
             self.ode_solver.Step(self._sol, t, dt)
             return
-        while t < target_time:
+        while big_time_step > 0:
             dt = self.compute_timestep()
-            real_dt = min(dt, target_time - t)
+            real_dt = min(dt, big_time_step)
             if real_dt < 0:
                 raise RuntimeError(
                     f"dt is negative: Either computed time step is negative or time exceeded target time.\n\tdt = {dt}, \n\tcurrent time = {t}")
             self.ode_solver.Step(self._sol, t, real_dt)
-            if real_dt < dt:  # if dt is different from real_dt
-                # then real_dt = target_time - t.
-                # So, update t as target_time to avoid floating point error
-                t = target_time
-            else:
-                t += dt
+            t += dt
+            big_time_step -= dt
+        return t
 
     def compute_timestep(self):
         dt = self.CFL * self.min_h / self._HCL.getMaxCharSpeed() / (2*self.max_order + 1)
@@ -98,9 +93,8 @@ class Solver:
             dt = reduced_dt
         return dt
 
-    def render(self, sout:mfem.socketstream):
-        gf = mfem.GridFunction(self._render_space, self._sol, self._renderer_offset*self._fespace.GetNVDofs())
-        
+    def render(self, sout: mfem.socketstream):
+        raise NotImplementedError("render should be implemented in the subclass")
 
     def refine(self, marked: mfem.intArray, coarsening: bool = False):
         match self.refinement_mode:
@@ -140,7 +134,6 @@ class Solver:
         else:
             transfer = mfem.PRefinementTransferOperator(old_fes, self.fespace)
             transfer.Mult(old_sol, self._sol)
-        
 
     def update_min_h(self):
         self.min_h = min([self._mesh.GetElementSize(i, 1)
@@ -158,7 +151,7 @@ class Solver:
     def init_renderer(self):
         raise NotImplementedError(
             "init_renderer should be implemented in the subclass")
-    
+
     # PROPERTIES
 
     @property
@@ -212,31 +205,33 @@ class Solver:
     @HCL.setter
     def HCL(self, new_HCL: DGHyperbolicConservationLaws):
         self._HCL = new_HCL
-        
+
     @property
     def renderer_space(self):
         return self._renderer_space
+
     @renderer_space.setter
-    def renderer_space(self, subspace:mfem.FiniteElementSpace | mfem.ParFiniteElementSpace):
+    def renderer_space(self, subspace: mfem.FiniteElementSpace | mfem.ParFiniteElementSpace):
         self._renderer_space = subspace
+
 
 class AdvectionSolver(Solver):
     def getSystem(self, **kwargs):
         self.b = kwargs.get('b')
-        self.HCL:DGHyperbolicConservationLaws = getAdvectionEquation(self._fespace, self.rsolver, self.b)
-    
-    def render(self, sout:mfem.socketstream):
+        self.HCL: DGHyperbolicConservationLaws = getAdvectionEquation(
+            self._fespace, self.rsolver, self.b)
+
+    def render(self, sout: mfem.socketstream):
         self.sout.precision(8)
         self.sout << "solution\n" << self._mesh << self._sol
         self.sout.flush()
-        
+
     def init_renderer(self):
         self.sout = mfem.socketstream("localhost", 19916)
         self.sout.send_text("view 0 0")
         self.sout.send_text("keys jl")
         self.sout.flush()
 
-        
 
 class EulerSolver(Solver):
     def getSystem(self, **kwargs):
@@ -250,12 +245,12 @@ class EulerSolver(Solver):
             sout.send_text("parallel " + str(MPI.COMM_WORLD.size) +
                            " " + str(MPI.COMM_WORLD.rank))
             sout.send_solution()
-    
-    def render(self, sout:mfem.socketstream):
+
+    def render(self, sout: mfem.socketstream):
         self.sout.precision(8)
         self.sout << "solution\n" << self._mesh << self._sol
         self.sout.flush()
-        
+
     def init_renderer(self):
         self.sout = mfem.socketstream("localhost", 19916)
         self.sout.send_text("view 0 0")
