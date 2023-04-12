@@ -75,6 +75,18 @@ class Solver:
             "getSystem should be implemented in the subclass")
 
     def step(self, big_time_step=None):
+        """Advance PDE solver in time. If big_time_step is not provided, then it advance single time-step.
+        If big_time_step>0 is provided, then it advance multi time-steps so that sum of dt = big_time_step
+
+        Args:
+            big_time_step (np.double, optional): Target time step size. Defaults to None.
+
+        Raises:
+            RuntimeError: When time step size is negative
+
+        Returns:
+            bool: Whether the solver reaches to terminal time or not.
+        """
         
         if big_time_step is None:  # single step
             # single step
@@ -89,12 +101,12 @@ class Solver:
             dt = self.compute_timestep()
             real_dt = min(dt, big_time_step)
             if real_dt < 0:
-                raise RuntimeError(
-                    f"dt is negative: Either computed time step is negative or time exceeded target time.\n\tdt = {dt}, \n\tcurrent time = {self.t}")
+                    raise RuntimeError(
+                        f"dt is negative: Either computed time step is negative or time exceeded target time.\n\tdt = {dt}, \n\tcurrent time = {self.t}")
             self.ode_solver.Step(self._sol, self.t, real_dt)
             self.t += real_dt
             big_time_step -= real_dt
-            
+        
         return (self.terminal_time - self.t) < dt*1.e-06
         
 
