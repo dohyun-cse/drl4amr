@@ -42,6 +42,49 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time):
         advection.render()
     print(advection.sol.ComputeL2Error(advection.initial_condition))
     
+def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time):
+    """run burgers solver
+
+    Args:
+        meshfile (str): mesh file
+        order (int): order of polynomial
+        ode_solver_type (int): ode solver type. 1: Euler, 2-4 and 6: RK
+        cfl (np.double): CFL number
+        terminal_time (np.double): terminal time
+    """
+    @mfem.jit.vector(vdim=1, interface="c++", sdim=2)
+    def InitCond(x, out):
+        out[0] = np.sin(np.pi*(x[0] + x[1]))
+
+    mesh = mfem.Mesh(meshfile)
+    mesh.UniformRefinement()
+    mesh.UniformRefinement()
+    if ode_solver_type == 1:
+        ode_solver = mfem.ForwardEulerSolver()
+    elif ode_solver_type == 2:
+        ode_solver = mfem.RK2Solver(1.0)
+    elif ode_solver_type == 3:
+        ode_solver = mfem.RK3SSolver()
+    elif ode_solver_type == 4:
+        ode_solver = mfem.RK4Solver()
+    elif ode_solver_type == 6:
+        ode_solver = mfem.RK6Solver()
+    else:
+        print("Unknown ODE solver type: " + str(ode_solver_type))
+        exit
+
+    burgers = solver.BurgersSolver(
+        mesh, order, 1, 'h', ode_solver, cfl, terminal_time)
+    burgers.init(InitCond)
+    burgers.init_renderer()
+
+    done = False
+    while not done:
+        done = burgers.step()
+        print(burgers.t)
+        burgers.render()
+    print(burgers.sol.ComputeL2Error(burgers.initial_condition))
+    
 def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time):
     @mfem.jit.vector(vdim=4, interface="c++")
     def InitCond(x, out):
@@ -123,7 +166,7 @@ if __name__ == "__main__":
     from mfem.common.arg_parser import ArgParser
     parser = ArgParser(description='Run solver')
     parser.add_argument('-solver', '--solver_name',
-                        default='euler',
+                        default='burgers',
                         action='store', type=str,
                         help="Solver name")
     parser.add_argument('-m', '--mesh',
@@ -159,5 +202,7 @@ if __name__ == "__main__":
     parser.print_options(args)
     if args.solver_name == 'advection':
         run_advection(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final)
+    elif args.solver_name == 'burgers':
+        run_burgers(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final)
     elif args.solver_name == 'euler':
         run_euler(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final)
