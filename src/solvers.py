@@ -252,7 +252,7 @@ class EulerSolver(Solver):
         self.gas_constant = kwargs.get('gas_constant', 1.0)
         self.specific_heat_ratio = kwargs.get('specific_heat_ratio', 1.4)
         self.HCL: DGHyperbolicConservationLaws = getEulerSystem(
-            self._fespace, self.rsolver, self.specific_heat_ratio, self.gas_constant, IntOrderOffset)
+            self._fespace, self.rsolver, self.specific_heat_ratio, 3)
 
     def render(self):
         if self._isParallel:
