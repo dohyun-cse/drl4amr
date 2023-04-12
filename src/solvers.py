@@ -90,7 +90,7 @@ class Solver:
             real_dt = min(dt, big_time_step)
             if real_dt < 0:
                 raise RuntimeError(
-                    f"dt is negative: Either computed time step is negative or time exceeded target time.\n\tdt = {dt}, \n\tcurrent time = {t}")
+                    f"dt is negative: Either computed time step is negative or time exceeded target time.\n\tdt = {dt}, \n\tcurrent time = {self.t}")
             self.ode_solver.Step(self._sol, self.t, real_dt)
             self.t += real_dt
             big_time_step -= real_dt
@@ -231,6 +231,26 @@ class AdvectionSolver(Solver):
         self.b = kwargs.get('b')
         self.HCL: DGHyperbolicConservationLaws = getAdvectionEquation(
             self._fespace, self.rsolver, self.b, IntOrderOffset)
+
+    def render(self):
+        self.sout.precision(8)
+        self.sout << "solution\n" << self._mesh << self._sol
+        self.sout.flush()
+
+    def init_renderer(self):
+        self.sout = mfem.socketstream("Dohyuns-Macbook", 19916)
+        print(self.sout.good())
+        self.sout.precision(8)
+        self.sout.send_text("view 0 0")
+        self.sout.send_text("keys jl")
+        self.sout.send_solution(self._mesh, self._sol)
+        self.sout.flush()
+
+
+class BurgersSolver(Solver):
+    def getSystem(self, IntOrderOffset=3, **kwargs):
+        self.HCL: DGHyperbolicConservationLaws = getBurgersEquation(
+            self._fespace, self.rsolver, IntOrderOffset)
 
     def render(self):
         self.sout.precision(8)
