@@ -260,7 +260,7 @@ class EulerSolver(Solver):
                            " " + str(MPI.COMM_WORLD.rank))
             self.sout.send_solution()
 
-    def render(self, sout: mfem.socketstream):
+    def render(self):
         self.sout.precision(8)
         self.sout << "solution\n" << self._mesh << self._sol
         self.sout.flush()

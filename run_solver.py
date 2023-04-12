@@ -41,13 +41,89 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time):
         print(advection.t)
         advection.render()
     print(advection.sol.ComputeL2Error(advection.initial_condition))
+    
+def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time):
+    @mfem.jit.vector(vdim=4, interface="c++")
+    def InitCond(x, out):
+        # "Fast vortex"
+        radius = 0.2
+        Minf = 0.5
+        beta = 1. / 5.
+
+        xc = 0.0
+        yc = 0.0
+        # Nice units
+        vel_inf = 1.
+        den_inf = 1.
+
+        specific_heat_ratio = 1.4
+        gas_constant = 1.0
+
+        pres_inf = (den_inf / specific_heat_ratio) * \
+            (vel_inf / Minf) * (vel_inf / Minf)
+        temp_inf = pres_inf / (den_inf * gas_constant)
+
+        r2rad = 0.0
+        r2rad += (x[0] - xc) * (x[0] - xc)
+        r2rad += (x[1] - yc) * (x[1] - yc)
+        r2rad /= (radius * radius)
+
+        shrinv1 = 1.0 / (specific_heat_ratio - 1.)
+
+        velX = vel_inf * \
+            (1 - beta * (x[1] - yc) / radius * np.exp(-0.5 * r2rad))
+        velY = vel_inf * beta * (x[0] - xc) / radius * np.exp(-0.5 * r2rad)
+        vel2 = velX * velX + velY * velY
+
+        specific_heat = gas_constant * specific_heat_ratio * shrinv1
+
+        temp = temp_inf - (0.5 * (vel_inf * beta) *
+                    (vel_inf * beta) / specific_heat * np.exp(-r2rad))
+
+        den = den_inf * (temp/temp_inf)**shrinv1
+        pres = den * gas_constant * temp
+        energy = shrinv1 * pres / den + 0.5 * vel2
+        
+        out[0] = den
+        out[1] = den*velX
+        out[2] = den*velY
+        out[3] = den*energy
+
+    mesh = mfem.Mesh(meshfile)
+    mesh.UniformRefinement()
+    mesh.UniformRefinement()
+    if ode_solver_type == 1:
+        ode_solver = mfem.ForwardEulerSolver()
+    elif ode_solver_type == 2:
+        ode_solver = mfem.RK2Solver(1.0)
+    elif ode_solver_type == 3:
+        ode_solver = mfem.RK3SSPSolver()
+    elif ode_solver_type == 4:
+        ode_solver = mfem.RK4Solver()
+    elif ode_solver_type == 6:
+        ode_solver = mfem.RK6Solver()
+    else:
+        print("Unknown ODE solver type: " + str(ode_solver_type))
+        exit
+
+    euler = solver.EulerSolver(
+        mesh, order, 4, 'h', ode_solver, cfl, terminal_time, specific_heat_ratio=1.4, gas_constant=1.0)
+    euler.init(InitCond)
+    euler.init_renderer()
+
+    done = False
+    while not done:
+        done = euler.step()
+        print(euler.t)
+        euler.render()
+    print(euler.sol.ComputeL2Error(euler.initial_condition))
 
 
 if __name__ == "__main__":
     from mfem.common.arg_parser import ArgParser
     parser = ArgParser(description='Run solver')
     parser.add_argument('-solver', '--solver_name',
-                        default='advection',
+                        default='euler',
                         action='store', type=str,
                         help="Solver name")
     parser.add_argument('-m', '--mesh',
@@ -83,3 +159,5 @@ if __name__ == "__main__":
     parser.print_options(args)
     if args.solver_name == 'advection':
         run_advection(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final)
+    elif args.solver_name == 'euler':
+        run_euler(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final)
