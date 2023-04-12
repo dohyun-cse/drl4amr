@@ -3,7 +3,7 @@ import src.solvers as solver
 import numpy as np
 
 
-def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time):
+def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
     @mfem.jit.vector(vdim=1, interface="c++", sdim=2)
     def InitCond(x, out):
         out[0] = np.sin(np.pi*x[0])*np.sin(np.pi*x[1])
@@ -37,12 +37,12 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time):
 
     done = False
     while not done:
-        done = advection.step()
+        done = advection.step(regrid_time)
         print(advection.t)
         advection.render()
     print(advection.sol.ComputeL2Error(advection.initial_condition))
     
-def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time):
+def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
     """run burgers solver
 
     Args:
@@ -189,6 +189,9 @@ if __name__ == "__main__":
     parser.add_argument("-dt", "--time_step",
                         action='store', default=-0.01, type=float,
                         help="Time step.")
+    parser.add_argument("-rg", "--regrid-time",
+                        action='store', default=0.5, type=float,
+                        help="Regrid time, larger than time step")
     parser.add_argument('-c', '--cfl_number',
                         action='store', default=0.3, type=float,
                         help="CFL number for timestep calculation.")
@@ -201,8 +204,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     parser.print_options(args)
     if args.solver_name == 'advection':
-        run_advection(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final)
+        run_advection(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final, args.regrid_time)
     elif args.solver_name == 'burgers':
-        run_burgers(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final)
+        run_burgers(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final, args.regrid_time)
     elif args.solver_name == 'euler':
-        run_euler(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final)
+        run_euler(args.mesh, args.order, args.ode_solver, args.cfl_number, args.t_final, args.regrid_time)
