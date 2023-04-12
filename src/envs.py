@@ -28,9 +28,28 @@ from ray.rllib.utils.typing import (
     MultiEnvDict,
 )
 
+import src.solvers as solver
+
+
 class HyperbolicAMREnv(MultiAgentEnv):
-    def __init__(self):
-        pass
+    def __init__(self, 
+                 solver_name:str, 
+                 solver_args:Dict=None,
+                 refine_mode='p',
+                 window_size=3, 
+                 seed:Optional[float]=None):
+        if solver_name == 'advection':
+            self.solver = solver.AdvectionSolver(**solver_args)
+        elif solver_name == 'burgers':
+            self.solver = solver.BurgersSolver(**solver_args)
+        elif solver_name == 'euler':
+            self.solver = solver.EulerSolver(**solver_args)
+        else:
+            raise ValueError(f'Unsupported solver name: {solver_name}.')
+        self.refine_mode = refine_mode
+        self.window_size = window_size
+        self.randomize = seed is not None
+        self.seed = seed
     
     def reset(self, *, seed: Optional[int]=None, options: Optional[dict] = None):
         pass
