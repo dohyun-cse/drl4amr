@@ -2,3 +2,4 @@ vortex-*
 shallow-water-*
 euler-*
 **/*.pyc
+.*
