@@ -32,19 +32,19 @@ class Solver:
                         "The provided parallel mesh is a conforming mesh. Please provide a non-conforming parallel mesh.")
                 self._isParallel = True
                 self.fespace = mfem.ParFiniteElementSpace(
-                    self._mesh, self.fec, self.vdim)
+                    mesh, self.fec, self.vdim)
                 self._sol = mfem.ParGridFunction(self.fespace)
             else:
                 self.fespace = mfem.FiniteElementSpace(
-                    self._mesh, self.fec, self.vdim)
+                    mesh, self.fec, self.vdim)
                 self._sol = mfem.GridFunction(self.fespace)
         else:
             self.fespace = mfem.FiniteElementSpace(
-                self._mesh, self.fec, self.vdim)
+                mesh, self.fec, self.vdim)
             self._sol = mfem.GridFunction(self.fespace)
         self.rsolver = RusanovFlux()
         self.ode_solver = ode_solver
-        self.getSystem(kwargs)
+        self.getSystem(IntOrderOffset=3, **kwargs)
         self.ode_solver.Init(self.HCL)
         self.CFL = cfl
         self.terminal_time = terminal_time
@@ -53,6 +53,11 @@ class Solver:
         self.t = 0.0
         self._sol.ProjectCoefficient(u0)
         self.initial_condition = u0
+        if self._isParallel:
+            dummy = mfem.ParGridFunction(self._sol)
+        else:
+            dummy = mfem.GridFunction(self._sol)
+        self.HCL.Mult(self._sol, dummy)
 
     def reset(self):
         if self._isParallel:
@@ -69,22 +74,29 @@ class Solver:
         raise NotImplementedError(
             "getSystem should be implemented in the subclass")
 
-    def step(self, t, big_time_step=None):
+    def step(self, big_time_step=None):
+        
         if big_time_step is None:  # single step
             # single step
             dt = self.compute_timestep()
-            self.ode_solver.Step(self._sol, t, dt)
-            return
+            real_dt = min(self.terminal_time - self.t, dt)
+            self.ode_solver.Step(self._sol, self.t, real_dt)
+            self.t += real_dt
+            return (self.terminal_time - self.t) < dt*1.e-06
+        
+        big_time_step = min(big_time_step, self.terminal_time - self.t)
         while big_time_step > 0:
             dt = self.compute_timestep()
             real_dt = min(dt, big_time_step)
             if real_dt < 0:
                 raise RuntimeError(
                     f"dt is negative: Either computed time step is negative or time exceeded target time.\n\tdt = {dt}, \n\tcurrent time = {t}")
-            self.ode_solver.Step(self._sol, t, real_dt)
-            t += dt
-            big_time_step -= dt
-        return t
+            self.ode_solver.Step(self._sol, self.t, real_dt)
+            self.t += real_dt
+            big_time_step -= real_dt
+            
+        return (self.terminal_time - self.t) < dt*1.e-06
+        
 
     def compute_timestep(self):
         dt = self.CFL * self.min_h / self._HCL.getMaxCharSpeed() / (2*self.max_order + 1)
@@ -93,21 +105,20 @@ class Solver:
             dt = reduced_dt
         return dt
 
-    def render(self, sout: mfem.socketstream):
+    def render(self):
         raise NotImplementedError("render should be implemented in the subclass")
 
     def refine(self, marked: mfem.intArray, coarsening: bool = False):
-        match self.refinement_mode:
-            case 'h':
-                if coarsening:
-                    self.hDerefine(marked)
-                else:
-                    self.hRefine(marked)
-            case 'p':
-                self.pRefine(marked)
-            case _:
-                raise ValueError(
-                    f"Refinement mode should be either 'h' or 'p', but {self.refinement_mode} is provided.")
+        if self.refinement_mode == 'h':
+            if coarsening:
+                self.hDerefine(marked)
+            else:
+                self.hRefine(marked)
+        elif self.refinement_mode == 'p':
+            self.pRefine(marked)
+        else:
+            raise ValueError(
+                f"Refinement mode should be either 'h' or 'p', but {self.refinement_mode} is provided.")
 
     def hRefine(self, marked):
         self.update_min_h()
@@ -168,7 +179,7 @@ class Solver:
         return self._fespace
 
     @fespace.setter
-    def fespace(self, new_fespace: mfem.FiniteElementSpace | mfem.ParFiniteElementSpace):
+    def fespace(self, new_fespace: mfem.FiniteElementSpace):
         if MFEM_USE_MPI:  # if parallel mfem is used
             if self._isParallel != isinstance(new_fespace, mfem.ParFiniteElementSpace):
                 if self._isParallel:
@@ -192,7 +203,7 @@ class Solver:
         return self._sol
 
     @sol.setter
-    def sol(self, gf: mfem.GridFunction | mfem.ParGridFunction):
+    def sol(self, gf: mfem.GridFunction):
         if gf.FESpace() is not self.fespace:
             raise ValueError(
                 'The provided grid function is not a function in the current finite element space.')
@@ -211,40 +222,43 @@ class Solver:
         return self._renderer_space
 
     @renderer_space.setter
-    def renderer_space(self, subspace: mfem.FiniteElementSpace | mfem.ParFiniteElementSpace):
+    def renderer_space(self, subspace: mfem.FiniteElementSpace):
         self._renderer_space = subspace
 
 
 class AdvectionSolver(Solver):
-    def getSystem(self, **kwargs):
+    def getSystem(self, IntOrderOffset=3, **kwargs):
         self.b = kwargs.get('b')
         self.HCL: DGHyperbolicConservationLaws = getAdvectionEquation(
-            self._fespace, self.rsolver, self.b)
+            self._fespace, self.rsolver, self.b, IntOrderOffset)
 
-    def render(self, sout: mfem.socketstream):
+    def render(self):
         self.sout.precision(8)
         self.sout << "solution\n" << self._mesh << self._sol
         self.sout.flush()
 
     def init_renderer(self):
-        self.sout = mfem.socketstream("localhost", 19916)
+        self.sout = mfem.socketstream("Dohyuns-Macbook", 19916)
+        print(self.sout.good())
+        self.sout.precision(8)
         self.sout.send_text("view 0 0")
         self.sout.send_text("keys jl")
+        self.sout.send_solution(self._mesh, self._sol)
         self.sout.flush()
 
 
 class EulerSolver(Solver):
-    def getSystem(self, **kwargs):
+    def getSystem(self, IJntOrderOffset=3, **kwargs):
         self.gas_constant = kwargs.get('gas_constant', 1.0)
         self.specific_heat_ratio = kwargs.get('specific_heat_ratio', 1.4)
         self.HCL: DGHyperbolicConservationLaws = getEulerSystem(
-            self._fespace, self.rsolver, self.specific_heat_ratio, self.gas_constant)
+            self._fespace, self.rsolver, self.specific_heat_ratio, self.gas_constant, IntOrderOffset)
 
-    def render(self, sout: mfem.socketstream):
+    def render(self):
         if self._isParallel:
-            sout.send_text("parallel " + str(MPI.COMM_WORLD.size) +
+            self.sout.send_text("parallel " + str(MPI.COMM_WORLD.size) +
                            " " + str(MPI.COMM_WORLD.rank))
-            sout.send_solution()
+            self.sout.send_solution()
 
     def render(self, sout: mfem.socketstream):
         self.sout.precision(8)

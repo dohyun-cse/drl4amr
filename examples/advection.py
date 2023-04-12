@@ -54,7 +54,7 @@ def run(problem=1,
 
     # 2. Read the mesh from the given mesh file. This example requires a 2D
     #    periodic mesh, such as ../data/periodic-square.mesh.
-    meshfile = expanduser(join(dirname(__file__), 'mesh', meshfile))
+    meshfile = expanduser(join(dirname(__file__), '..', 'mesh', meshfile))
     mesh = mfem.Mesh(meshfile, 1, 1)
     dim = mesh.Dimension()
     num_equations = 1
