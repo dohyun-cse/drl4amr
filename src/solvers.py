@@ -1,19 +1,19 @@
 import sys
-if 'mfem.ser' in sys.modules:
-    MFEM_USE_MPI = False
-    import mfem.ser as mfem
-    from mfem.ser import \
-        getAdvectionEquation, getBurgersEquation, getShallowWaterEquation, getEulerSystem, \
-        RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws, HyperbolicFormIntegrator, \
-           AdvectionFormIntegrator, BurgersFormIntegrator, ShallowWaterFormIntegrator, EulerFormIntegrator
-else:
-    MFEM_USE_MPI = True
-    from mpi4py import MPI
-    import mfem.par as mfem
-    from mfem.par import \
-        getAdvectionEquation, getBurgersEquation, getShallowWaterEquation, getEulerSystem, \
-        RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws, HyperbolicFormIntegrator, \
-           AdvectionFormIntegrator, BurgersFormIntegrator, ShallowWaterFormIntegrator, EulerFormIntegrator
+# if 'mfem.ser' in sys.modules:
+    # MFEM_USE_MPI = False
+import mfem.ser as mfem
+from mfem.ser import \
+    getAdvectionEquation, getBurgersEquation, getShallowWaterEquation, getEulerSystem, \
+    RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws, HyperbolicFormIntegrator, \
+        AdvectionFormIntegrator, BurgersFormIntegrator, ShallowWaterFormIntegrator, EulerFormIntegrator
+# else:
+#     MFEM_USE_MPI = True
+#     from mpi4py import MPI
+#     import mfem.par as mfem
+#     from mfem.par import \
+#         getAdvectionEquation, getBurgersEquation, getShallowWaterEquation, getEulerSystem, \
+#         RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws, HyperbolicFormIntegrator, \
+#            AdvectionFormIntegrator, BurgersFormIntegrator, ShallowWaterFormIntegrator, EulerFormIntegrator
 
 import numpy as np
 
@@ -28,29 +28,30 @@ class Solver:
         self.fec = mfem.DG_FECollection(order, self.sdim)
         self.fecP0 = mfem.DG_FECollection(0, self.sdim)
         self._isParallel = False
-        if MFEM_USE_MPI:
-            if isinstance(mesh, mfem.ParMesh):
-                if not mesh.Nonconforming():
-                    raise ValueError(
-                        "The provided parallel mesh is a conforming mesh. Please provide a non-conforming parallel mesh.")
-                self._isParallel = True
-                self.fespace = mfem.ParFiniteElementSpace(
-                    mesh, self.fec, self.vdim, mfem.Ordering.byNODES)
-                self.constant_space = mfem.ParFiniteElementSpace(
-                    mesh, self.fecP0, self.vdim, mfem.Ordering.byNODES)
-                self._sol = mfem.ParGridFunction(self.fespace)
-            else:
-                self.fespace = mfem.FiniteElementSpace(
-                    mesh, self.fec, self.vdim, mfem.Ordering.byNODES)
-                self.constant_space = mfem.FiniteElementSpace(
-                    mesh, self.fecP0, self.vdim, mfem.Ordering.byNODES)
-                self._sol = mfem.GridFunction(self.fespace)
-        else:
-            self.fespace = mfem.FiniteElementSpace(
-                mesh, self.fec, self.vdim, mfem.Ordering.byNODES)
-            self.constant_space = mfem.FiniteElementSpace(
-                mesh, self.fecP0, self.vdim, mfem.Ordering.byNODES)
-            self._sol = mfem.GridFunction(self.fespace)
+        # if MFEM_USE_MPI:
+        #     if isinstance(mesh, mfem.ParMesh):
+        #         if not mesh.Nonconforming():
+        #             raise ValueError(
+        #                 "The provided parallel mesh is a conforming mesh. Please provide a non-conforming parallel mesh.")
+        #         self._isParallel = True
+        #         self.fespace = mfem.ParFiniteElementSpace(
+        #             mesh, self.fec, self.vdim, mfem.Ordering.byNODES)
+        #         self.constant_space = mfem.ParFiniteElementSpace(
+        #             mesh, self.fecP0, self.vdim, mfem.Ordering.byNODES)
+        #         self._sol = mfem.ParGridFunction(self.fespace)
+        #     else:
+        #         self.fespace = mfem.FiniteElementSpace(
+        #             mesh, self.fec, self.vdim, mfem.Ordering.byNODES)
+        #         self.constant_space = mfem.FiniteElementSpace(
+        #             mesh, self.fecP0, self.vdim, mfem.Ordering.byNODES)
+        #         self._sol = mfem.GridFunction(self.fespace)
+        # else:
+        self.fespace = mfem.FiniteElementSpace(
+            mesh, self.fec, self.vdim, mfem.Ordering.byNODES)
+        self.constant_space = mfem.FiniteElementSpace(
+            mesh, self.fecP0, self.vdim, mfem.Ordering.byNODES)
+        
+        self._sol = mfem.GridFunction(self.fespace)
         self.rsolver = RusanovFlux()
         self.ode_solver = ode_solver
         self.solver_args = kwargs
@@ -64,21 +65,21 @@ class Solver:
         self.t = 0.0
         self._sol.ProjectCoefficient(u0)
         self.initial_condition = u0
-        if self._isParallel:
-            dummy = mfem.ParGridFunction(self._sol)
-        else:
-            dummy = mfem.GridFunction(self._sol)
+        # if self._isParallel:
+        #     dummy = mfem.ParGridFunction(self._sol)
+        # else:
+        dummy = mfem.GridFunction(self._sol)
         self.HCL.Mult(self._sol, dummy)
 
     def reset(self):
-        if self._isParallel:
-            self.fespace = mfem.ParFiniteElementSpace(
-                self._initial_mesh, self.fec, self.vdim)
-            self._sol = mfem.ParGridFunction(self._fespace)
-        else:
-            self.fespace = mfem.FiniteElementSpace(
-                self._initial_mesh, self.fec, self.vdim)
-            self._sol = mfem.GridFunction(self._fespace)
+        # if self._isParallel:
+        #     self.fespace = mfem.ParFiniteElementSpace(
+        #         self._initial_mesh, self.fec, self.vdim)
+        #     self._sol = mfem.ParGridFunction(self._fespace)
+        # else:
+        self.fespace = mfem.FiniteElementSpace(
+            self._initial_mesh, self.fec, self.vdim)
+        self._sol = mfem.GridFunction(self._fespace)
         self.getSystem(**self.solver_args)
         self.t = 0.0
         self.initial_condition.SetTime(0.0)
@@ -105,9 +106,9 @@ class Solver:
         
     def compute_timestep(self):
         dt = self.CFL * self.min_h / self._HCL.getMaxCharSpeed() / (2*self.max_order + 1)
-        if self._isParallel:
-            reduced_dt = MPI.COMM_WORLD.allreduce(dt, op=MPI.MIN)
-            dt = reduced_dt
+        # if self._isParallel:
+        #     reduced_dt = MPI.COMM_WORLD.allreduce(dt, op=MPI.MIN)
+        #     dt = reduced_dt
         return dt
     
     def compute_L2_errors(self, exact:mfem.VectorFunctionCoefficient):
@@ -146,37 +147,65 @@ class Solver:
         pass
 
     def pRefine(self, marked):
-        if self._isParallel:
-            old_fes = mfem.ParFiniteElementSpace(self.fespace)
-            old_sol = mfem.ParGridFunction(old_fes)
-        else:
-            old_fes = mfem.FiniteElementSpace(self.fespace)
-            old_sol = mfem.GridFunction(old_fes)
-        old_sol.Assign(self.sol)
+        
+        # COPY
+        # if self._isParallel:
+        #     old_fes = mfem.ParFiniteElementSpace(self.mesh, self.fec)
+        # else:
+        old_fes = mfem.FiniteElementSpace(self.mesh, self.fec)
+        for i in range(self.mesh.GetNE()):
+            old_fes.SetElementOrder(i, self.fespace.GetElementOrder(i))
+        
+        # UPDATE
         for i in range(self.mesh.GetNE()):
             self.fespace.SetElementOrder(i, marked[i])
         self.fespace.Update(False)
-        self.sol.Update()
+        
         if self.t == 0:
-            self.sol.ProjectCoefficient(self.u0)
+            self.sol.Update()
+            self.sol.ProjectCoefficient(self.initial_condition)
         else:
-            transfer = mfem.PRefinementTransferOperator(old_fes, self.fespace)
-            transfer.Mult(old_sol, self.sol)
+            # if self._isParallel:
+            #     new_sol = mfem.ParGridFunction(self.fespace)
+            # else:
+            new_sol = mfem.GridFunction(self.fespace)
+            
+            op = mfem.PRefinementTransferOperator(old_fes, self.fespace)
+            op.Mult(self.sol, new_sol)
+            self.sol = new_sol
         self.HCL.Update()
+        self.fespace.UpdatesFinished()
 
-    def ComputeElementAverageFluxJacobian(self):
+    def ComputeElementAverageFluxJacobian(self) -> tuple(mfem.DenseTensor, mfem.DenseMatrix):
+        """Compute element average state ū and compute ∂F(ū)/∂u
+
+        Returns:
+            mfem.DenseMatrix: Flux Jacobian of average state
+        """
         average_state = mfem.GridFunction(self.constant_space)
         self.sol.GetElementAverages(average_state)
+        
+        # Set up integration point as center of element.
+        # This is necessary when F depends on space.
+        # e.g., Advection equation
         intrule:mfem.IntegrationRule = mfem.IntRules.Get(self.element_geometry, 0)
         ip = intrule.IntPoint(0)
         
+        
+        # Preallocate Jacobian(nvars, nvars, dim, nElem)
         Jacobians = mfem.DenseTensor(self.vdim, self.vdim, self.sdim*self.mesh.GetNE())
-        memory_J = Jacobians.GetMemory()
+        # Preallocate eigs(nvars, dim, nElem)
         eigs = mfem.DenseMatrix(self.vdim, self.sdim*self.mesh.GetNE())
+        
+        # NOTE: Will it be much cheaper and effective enough to just consider
+        #       normal directional Jacobian?
         for i in range(self.mesh.GetNE()):
+            # Subvectors
             current_state = mfem.Vector(average_state, self.vdim*i, self.vdim)
             current_J = mfem.DenseTensor(Jacobians.GetData(self.sdim*i), self.vdim, self.vdim, self.sdim)
             current_eigs = mfem.DenseMatrix(eigs.GetColumn(self.sdim*i), self.vdim, self.sdim)
+            
+            # Compute flux!
             trans = self.mesh.GetElementTransformation(i)
             trans.SetIntPoint(ip)
             self.formIntegrator.ComputeFluxJacobian(current_state, trans, current_J, current_eigs)
@@ -186,15 +215,15 @@ class Solver:
     def update_min_h(self):
         self.min_h = min([self._mesh.GetElementSize(i, 1)
                          for i in range(self._mesh.GetNE())])
-        if MFEM_USE_MPI and self._isParallel:
-            hmin = MPI.COMM_WORLD.allreduce(self.min_h, op=MPI.MIN)
-            self.min_h = hmin
+        # if MFEM_USE_MPI and self._isParallel:
+        #     hmin = MPI.COMM_WORLD.allreduce(self.min_h, op=MPI.MIN)
+        #     self.min_h = hmin
 
     def update_max_order(self):
         self.max_order = self._fespace.GetMaxElementOrder()
-        if MFEM_USE_MPI and self._isParallel:
-            pmax = MPI.COMM_WORLD.allreduce(self.max_order, op=MPI.MAX, )
-            self.max_order = pmax
+        # if MFEM_USE_MPI and self._isParallel:
+        #     pmax = MPI.COMM_WORLD.allreduce(self.max_order, op=MPI.MAX, )
+        #     self.max_order = pmax
 
     def init_renderer(self):
         raise NotImplementedError(
@@ -221,21 +250,21 @@ class Solver:
 
     @fespace.setter
     def fespace(self, new_fespace: mfem.FiniteElementSpace):
-        if MFEM_USE_MPI:  # if parallel mfem is used
-            if self._isParallel != isinstance(new_fespace, mfem.ParFiniteElementSpace):
-                if self._isParallel:
-                    raise ValueError(
-                        'The solver is initialized with parallel mesh, but tried to overwrite FESpace with serial FESpace.')
-                else:
-                    raise ValueError(
-                        'The solver is initialized with serial mesh, but tried to overwrite FESpace with parallel FESpace.')
+        # if MFEM_USE_MPI:  # if parallel mfem is used
+        #     if self._isParallel != isinstance(new_fespace, mfem.ParFiniteElementSpace):
+        #         if self._isParallel:
+        #             raise ValueError(
+        #                 'The solver is initialized with parallel mesh, but tried to overwrite FESpace with serial FESpace.')
+        #         else:
+        #             raise ValueError(
+        #                 'The solver is initialized with serial mesh, but tried to overwrite FESpace with parallel FESpace.')
         self._fespace = new_fespace
-        if self._isParallel:
-            self._mesh: mfem.ParMesh = self._fespace.GetParMesh()
-            self._initial_mesh = mfem.ParMesh(self._mesh, True)
-        else:
-            self._mesh: mfem.Mesh = self._fespace.GetMesh()
-            self._initial_mesh = mfem.Mesh(self._mesh)
+        # if self._isParallel:
+        #     self._mesh: mfem.ParMesh = self._fespace.GetParMesh()
+        #     self._initial_mesh = mfem.ParMesh(self._mesh, True)
+        # else:
+        self._mesh: mfem.Mesh = self._fespace.GetMesh()
+        self._initial_mesh = mfem.Mesh(self._mesh)
         self.update_min_h()
         self.update_max_order()
 
@@ -332,10 +361,11 @@ class EulerSolver(Solver):
         self.HCL = DGHyperbolicConservationLaws(self.fespace, self.formIntegrator, self.vdim)
 
     def render(self):
-        if self._isParallel:
-            self.sout.send_text("parallel " + str(MPI.COMM_WORLD.size) +
-                           " " + str(MPI.COMM_WORLD.rank))
-            self.sout.send_solution()
+        # if self._isParallel:
+        #     self.sout.send_text("parallel " + str(MPI.COMM_WORLD.size) +
+        #                    " " + str(MPI.COMM_WORLD.rank))
+        #     self.sout.send_solution()
+        self.sout.send_solution(self.mesh, self.solution)
 
     def render(self):
         self.sout.precision(8)
