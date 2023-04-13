@@ -187,7 +187,8 @@ class Solver:
             trans = self.mesh.GetElementTransformation(i)
             trans.SetIntPoint(ip)
             self.formIntegrator.ComputeFluxJacobian(current_state, trans, current_J, current_eigs)
-        print(Jacobians)
+        
+        return (Jacobians, eigs)
         
     def update_min_h(self):
         self.min_h = min([self._mesh.GetElementSize(i, 1)
@@ -240,13 +241,13 @@ class Solver:
             self._mesh: mfem.ParMesh = self._fespace.GetParMesh()
             self._initial_mesh = mfem.ParMesh(self._mesh, True)
         else:
-            self._mesh: mfem.Mesh = self._fespace.Mesh()
+            self._mesh: mfem.Mesh = self._fespace.GetMesh()
             self._initial_mesh = mfem.Mesh(self._mesh)
         self.update_min_h()
         self.update_max_order()
 
     @property
-    def sol(self) -> mfem.GridFunction | mfem.ParGridFunction:
+    def sol(self) -> mfem.GridFunction:
         return self._sol
 
     @sol.setter
