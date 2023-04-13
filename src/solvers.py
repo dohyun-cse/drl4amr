@@ -89,20 +89,14 @@ class Solver:
     def step(self):
         """Advance FE solution one time step where dt is from CFL condition.
 
-        Args:
-            max_dt (np.double, optional): Maximum dt.
-
-        Raises:
-            RuntimeError: When time step size is negative
-
         Returns:
             bool: Whether the solver reaches to terminal time or not.
         """
         dt = self.compute_timestep()
         real_dt = min(dt, self.terminal_time - self.t)
+        if real_dt <= 0:
+            return (True, real_dt)
         # single step
-        dt = self.compute_timestep()
-        real_dt = min(self.terminal_time - self.t, dt)
         self.ode_solver.Step(self._sol, self.t, real_dt)
         self.t += real_dt
         return ((self.terminal_time - self.t) < dt*1.e-04, real_dt)
@@ -113,6 +107,10 @@ class Solver:
             reduced_dt = MPI.COMM_WORLD.allreduce(dt, op=MPI.MIN)
             dt = reduced_dt
         return dt
+    def compute_L2_errors(self, exact:mfem.VectorFunctionCoefficient):
+        errors = mfem.GridFunction(self.constant_space)
+        self.sol.ComputeElementL2Errors(exact, errors)
+        return (np.sqrt(np.dot(errors, errors)), errors)
 
     def render(self):
         raise NotImplementedError("render should be implemented in the subclass")
@@ -163,7 +161,6 @@ class Solver:
         
         Jacobians = mfem.DenseTensor(self.vdim, self.vdim, self.sdim*self.mesh.GetNE())
         memory_J = Jacobians.GetMemory()
-        memory_J
         eigs = mfem.DenseMatrix(self.vdim, self.sdim*self.mesh.GetNE())
         for i in range(self.mesh.GetNE()):
             current_state = mfem.Vector(average_state, self.vdim*i, self.vdim)
