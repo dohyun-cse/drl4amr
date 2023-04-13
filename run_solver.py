@@ -4,9 +4,9 @@ import numpy as np
 
 
 def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
-    @mfem.jit.vector(vdim=1, interface="c++", sdim=2)
-    def InitCond(x, out):
-        out[0] = np.sin(np.pi*x[0])*np.sin(np.pi*x[1])
+    @mfem.jit.vector(td=True, vdim=1, interface="c++", sdim=2)
+    def InitCond(x, t, out):
+        out[0] = np.sin(np.pi*(x[0] + t))*np.sin(np.pi*(x[1] + t))
 
     @mfem.jit.vector(vdim=2, interface="c++", sdim=2)
     def Velocity(x, out):
@@ -32,15 +32,18 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
 
     advection = solver.AdvectionSolver(
         mesh, order, 1, 'h', ode_solver, cfl, terminal_time, b=Velocity)
+    InitCond.SetTime(0.0)
     advection.init(InitCond)
     advection.init_renderer()
 
-    done = False
-    while not done:
-        done = advection.step(regrid_time)
-        print(advection.t)
+    while advection.t < terminal_time:
+        advection.terminal_time = min(advection.t + regrid_time, terminal_time)
+        done = False
+        while not done:
+            done, dt = advection.step()
+        InitCond.SetTime(advection.t)
+        print(advection.t, advection.sol.ComputeL2Error(advection.initial_condition))
         advection.render()
-    print(advection.sol.ComputeL2Error(advection.initial_condition))
     
 def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
     """run burgers solver
@@ -166,7 +169,7 @@ if __name__ == "__main__":
     from mfem.common.arg_parser import ArgParser
     parser = ArgParser(description='Run solver')
     parser.add_argument('-solver', '--solver_name',
-                        default='burgers',
+                        default='advection',
                         action='store', type=str,
                         help="Solver name")
     parser.add_argument('-m', '--mesh',
