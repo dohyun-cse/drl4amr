@@ -53,7 +53,8 @@ class Solver:
             self._sol = mfem.GridFunction(self.fespace)
         self.rsolver = RusanovFlux()
         self.ode_solver = ode_solver
-        self.getSystem(IntOrderOffset=3, **kwargs)
+        self.solver_args = kwargs
+        self.getSystem(IntOrderOffset=3, **self.solver_args)
         self.ode_solver.Init(self.HCL)
         self.CFL = cfl
         
@@ -78,8 +79,10 @@ class Solver:
             self.fespace = mfem.FiniteElementSpace(
                 self._initial_mesh, self.fec, self.vdim)
             self._sol = mfem.GridFunction(self._fespace)
-        self._sol.ProjectCoefficient(self.initial_condition)
+        self.getSystem(**self.solver_args)
         self.t = 0.0
+        self.initial_condition.SetTime(0.0)
+        self._sol.ProjectCoefficient(self.initial_condition)
 
     def getSystem(self, **kwargs):
         raise NotImplementedError(
@@ -106,8 +109,9 @@ class Solver:
             reduced_dt = MPI.COMM_WORLD.allreduce(dt, op=MPI.MIN)
             dt = reduced_dt
         return dt
+    
     def compute_L2_errors(self, exact:mfem.VectorFunctionCoefficient):
-        self.initial_condition.SetTime(self.t)
+        exact.SetTime(self.t)
         errors = mfem.GridFunction(self.constant_space)
         self.sol.ComputeElementL2Errors(exact, errors)
         return (np.sqrt(np.dot(errors, errors)), errors)
@@ -128,10 +132,16 @@ class Solver:
                 f"Refinement mode should be either 'h' or 'p', but {self.refinement_mode} is provided.")
 
     def hRefine(self, marked):
+        self.fespace.Update()
+        self.sol.Update()
+        self.HCL.Update()
         self.update_min_h()
         pass
 
     def hDerefine(self, marked):
+        self.fespace.Update()
+        self.sol.Update()
+        self.HCL.Update()
         self.update_min_h()
         pass
 
@@ -142,16 +152,17 @@ class Solver:
         else:
             old_fes = mfem.FiniteElementSpace(self.fespace)
             old_sol = mfem.GridFunction(old_fes)
-        old_sol.Assign(self._sol)
-        for i in range(self._mesh.GetNE()):
+        old_sol.Assign(self.sol)
+        for i in range(self.mesh.GetNE()):
             self.fespace.SetElementOrder(i, marked[i])
         self.fespace.Update(False)
-        self._sol.Update()
+        self.sol.Update()
         if self.t == 0:
-            self._sol.ProjectCoefficient(self.u0)
+            self.sol.ProjectCoefficient(self.u0)
         else:
             transfer = mfem.PRefinementTransferOperator(old_fes, self.fespace)
-            transfer.Mult(old_sol, self._sol)
+            transfer.Mult(old_sol, self.sol)
+        self.HCL.Update()
 
     def ComputeElementAverageFluxJacobian(self):
         average_state = mfem.GridFunction(self.constant_space)
@@ -284,7 +295,8 @@ class AdvectionSolver(Solver):
 
     def init_renderer(self):
         self.sout = mfem.socketstream("localhost", 19916)
-        print(self.sout.good())
+        if not self.sout.good():
+            print("Unable to open GLVis.")
         self.sout.precision(8)
         self.sout.send_text("view 0 0")
         self.sout.send_text("keys jl")

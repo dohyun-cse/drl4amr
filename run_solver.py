@@ -31,20 +31,24 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
         exit
 
     advection = solver.AdvectionSolver(
-        mesh, order, 1, 'h', ode_solver, cfl, terminal_time, b=Velocity)
+        mesh, order, 1, 'h', ode_solver, cfl, b=Velocity)
     InitCond.SetTime(0.0)
     advection.init(InitCond)
     advection.init_renderer()
-
+    n_regrid = 0
     while advection.t < terminal_time:
+        n_regrid += 1
+        print(advection.t)
         advection.terminal_time = min(advection.t + regrid_time, terminal_time)
         done = False
         while not done:
             done, dt = advection.step()
-        InitCond.SetTime(advection.t)
         error, errors = advection.compute_L2_errors(InitCond)
+        advection.sol.Save(f'advection-{n_regrid:06}.gf', 8)
+        print(f'{error=}')
         
         advection.render()
+    print(advection.t)
     
 def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
     """run burgers solver
@@ -78,16 +82,26 @@ def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_tim
         exit
 
     burgers = solver.BurgersSolver(
-        mesh, order, 1, 'h', ode_solver, cfl, terminal_time)
+        mesh, order, 1, 'h', ode_solver, cfl)
+    InitCond.SetTime(0.0)
     burgers.init(InitCond)
     burgers.init_renderer()
 
     done = False
-    while not done:
-        done = burgers.step(regrid_time)
+
+    n_regrid = 0
+    while burgers.t < terminal_time:
+        n_regrid += 1
         print(burgers.t)
+        burgers.terminal_time = min(burgers.t + regrid_time, terminal_time)
+        done = False
+        while not done:
+            done, dt = burgers.step()
+        burgers.sol.Save(f'burgers-{n_regrid:06}.gf', 8)
+        error, errors = burgers.compute_L2_errors(InitCond)
+        
         burgers.render()
-    print(burgers.sol.ComputeL2Error(burgers.initial_condition))
+    print(burgers.t)
     
 def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
     @mfem.jit.vector(vdim=4, interface="c++")
@@ -154,16 +168,26 @@ def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=
         exit
 
     euler = solver.EulerSolver(
-        mesh, order, 4, 'h', ode_solver, cfl, terminal_time, specific_heat_ratio=1.4, gas_constant=1.0)
+        mesh, order, 4, 'h', ode_solver, cfl, specific_heat_ratio=1.4, gas_constant=1.0)
     euler.init(InitCond)
     euler.init_renderer()
 
     done = False
-    while not done:
-        done = euler.step(regrid_time)
+    n_regrid = 0
+    while euler.t < terminal_time:
+        n_regrid += 1
         print(euler.t)
+        euler.terminal_time = min(euler.t + regrid_time, terminal_time)
+        done = False
+        while not done:
+            done, dt = euler.step()
+        euler.sol.Save(f'euler-{n_regrid:06}.gf', 8)
+        print('hi')
+        error, errors = euler.compute_L2_errors(InitCond)
+        print(f'{error=}')
+        
         euler.render()
-    print(euler.sol.ComputeL2Error(euler.initial_condition))
+    print(euler.t)
 
 
 if __name__ == "__main__":

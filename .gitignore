@@ -1,5 +1,6 @@
-vortex-*
+advection-*
 shallow-water-*
 euler-*
+burgers-*
 **/*.pyc
 .*

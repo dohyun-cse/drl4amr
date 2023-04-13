@@ -154,20 +154,20 @@ class HyperbolicAMREnv(MultiAgentEnv):
         while not done:
             done, dt = self.solver.step() # advance time
             # if error should be measured at each time step
-            if self.observation_norm in ["L2", "Linfty"]:
+            if self.observation_norm in ['L2', 'Linfty']:
                 # compute error
                 current_total_error, current_errors = self.solver.compute_L2_errors()
                 current_errors = current_errors.GetDataArray()
-                if self.observation_norm == "L2":
+                if self.observation_norm == 'L2':
                     # square it and weighted sum with dt
                     errors += current_errors**2*dt 
                     total_error += current_total_error**2*dt
-                elif self.observation_norm == "Linfty":
+                elif self.observation_norm == 'Linfty':
                     # take element-wise maximum
                     errors = np.maximum(errors, current_errors)
                     total_error = max(total_error, current_total_error)
         
-        if self.observation_norm == "at_regrid_time": # only measure at the regrid time
+        if self.observation_norm == 'at_regrid_time': # only measure at the regrid time
             # compute current error
             total_error, errors = self.solver.compute_L2_errors()
             errors = errors.GetDataArray()
@@ -178,25 +178,30 @@ class HyperbolicAMREnv(MultiAgentEnv):
         total_error = np.log(total_error)
         errors = np.log(errors)
         
-        if self.observation_norm == "L2":
+        if self.observation_norm == 'L2':
             # If L2 error, then it must be squared!
             # divide it by 2 because we took log
             # Also divide it by dt for reweighting
             errors = errors/2 - np.log(self.regrid_time)/2
             total_error = total_error/2 - np.log(self.regrid_time)/2
+            
+        errors -= total_error
         #endregion
         
         #region FluxJacobian
         Jacobian, eigs = self.solver.ComputeElementAverageFluxJacobian()
         Jacobian = Jacobian.GetDataArray().reshape((self.solver.vdim**2*self.solver.sdim, self.solver.mesh.GetNE()))
+        Jacobian = 
         eigs = eigs.GetDataArray().reshape((self.solver.vdim*self.solver.sdim, self.solver.mesh.GetNE()))
         #endregion
         
-        #region Make Map!        
-        elementwise_observation = np.append(errors.reshape((1, 1, self.solver.mesh.GetNE())), Jacobian)
+        #region Make Map!
+        
+        # make element-wise observation obs[:,i] = [error, Jacobians]
+        elementwise_observation = np.append(errors.reshape((1, self.solver.mesh.GetNE())), Jacobian, axis=0)
+        observation = elementwise_observation[:, self.obs_map].reshape((-1, self.solver.mesh.GetNE()))
         
         #endregion
-        
         
         
         
@@ -225,6 +230,12 @@ class HyperbolicAMREnv(MultiAgentEnv):
                     for x_offset in range(self.window_size*2 + 1):
                         i += 1
                         obs_map[i] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset, -self.window_size + z_offset), axis=(0,1,2))
+    
+    @property
+    def obs_map(self) -> np.ndarray:
+        return self._obs_map
+    def obs_map(self, new_map:np.ndarray):
+        self._obs_map = new_map
         
         
         
