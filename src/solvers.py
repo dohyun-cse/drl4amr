@@ -108,6 +108,7 @@ class Solver:
             dt = reduced_dt
         return dt
     def compute_L2_errors(self, exact:mfem.VectorFunctionCoefficient):
+        self.initial_condition.SetTime(self.t)
         errors = mfem.GridFunction(self.constant_space)
         self.sol.ComputeElementL2Errors(exact, errors)
         return (np.sqrt(np.dot(errors, errors)), errors)
