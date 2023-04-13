@@ -85,52 +85,68 @@ class HyperbolicAMREnv(MultiAgentEnv):
         """
         marked = self.convert_to_marked(action_dict)
         
+        # Perform Actions
         self.solver.refine(marked)
-        if self.observation_norm in ['L2', 'Linfty']:
-            errors = mfem.Vector(self.solver.mesh.GetNE())
-            for i in range(errors.Size()):
-                errors[i] = 0.0
-            done = False
-            while not done:
-                done = self.solver.step()
-                current_errors = self.estimate(self.solver.sol)
+        
+        #region Advance in time        
+        errors = np.zeros((self.solver.mesh.GetNE(),),np.double)
+        total_error = 0.0
+        for i in range(errors.Size()):
+            errors[i] = 0.0
+        
+        # update solver terminal time
+        self.solver.terminal_time = min(self.regrid_time, self.terminal_time - self.solver.t)
+        done = False
+        while not done:
+            done, dt = self.solver.step() # advance time
+            # if error should be measured at each time step
+            if self.observation_norm in ["L2", "Linfty"]:
+                # compute error
+                current_total_error, current_errors = self.solver.compute_L2_errors()
+                current_errors = current_errors.GetDataArray()
                 if self.observation_norm == "L2":
-                    for i in range(errors.Size()):
-                        errors[i] += current_errors[i]**2
-                else:
-                    for i in range(errors.Size()):
-                        errors[i] = max(errors[i], current_errors[i])
-                
-        elif self.observation_norm == 'at_regrid_time':
-            self.solver.step(self.regrid_time)
-            errors = self.estimate(self.solver.sol)
-            average_flux_jacobian = self.solver.ComputeFluxJacobian()
+                    # square it and weighted sum with dt
+                    errors += current_errors**2*dt 
+                    total_error += current_total_error**2*dt
+                elif self.observation_norm == "Linfty":
+                    # take element-wise maximum
+                    errors = np.maximum(errors, current_errors)
+                    total_error = max(total_error, current_total_error)
+        
+        if self.observation_norm == "at_regrid_time": # only measure at the regrid time
+            # compute current error
+            total_error, errors = self.solver.compute_L2_errors()
+            errors = errors.GetDataArray()
+        #endregion
+        
+        #region Logscale Error
+        # take logarithm
+        total_error = np.log(total_error)
+        errors = np.log(errors)
+        
+        if self.observation_norm == "L2":
+            # If L2 error, then it must be squared!
+            # divide it by 2 because we took log
+            # Also divide it by dt for reweighting
+            errors = errors/2 - np.log(self.regrid_time)/2
+            total_error = total_error/2 - np.log(self.regrid_time)/2
+        #endregion
+        
+        #region FluxJacobian
+        Jacobian, eigs = self.solver.ComputeElementAverageFluxJacobian()
+        Jacobian = Jacobian.GetDataArray().reshape((self.solver.vdim**2*self.solver.sdim, self.solver.mesh.GetNE()))
+        eigs = eigs.GetDataArray().reshape((self.solver.vdim*self.solver.sdim, self.solver.mesh.GetNE()))
+        #endregion
+        
+        #region Make Map!        
+        elementwise_observation = np.append(errors.reshape((1, 1, self.solver.mesh.GetNE())), Jacobian)
+        
+        #endregion
+        
+        
+        
         
     def render(self):
         self.solver.render()
     
-    def build_obs_map(self):
-        """obs[:,i] = element indices within the window size. Only uniform periodic rectangular mesh is supported.
-        """
-        sdim = self.solver.sdim
-        obs_map = np.zeros(((self.window_size*2 + 1)**self.solver.sdim, self.solver.mesh()), dtype=int)
-        idx = np.arange(np.prod(self.num_grids)).reshape(self.num_grids)
-        if sdim == 1:
-            for x_offset in range(self.window_size*2 + 1):
-                obs_map[x_offset, :] = np.roll(idx, (-self.window_size + x_offset))
-        elif sdim == 2:
-            i = 0
-            for y_offset in range(self.window_size*2 + 1):
-                for x_offset in range(self.window_size*2 + 1):
-                    i += 1
-                    obs_map[i] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset), axis=(0,1))
-        elif sdim == 3:
-            i = 0
-            for z_offset in range(self.window_size*2 + 1):
-                for y_offset in range(self.window_size*2 + 1):
-                    for x_offset in range(self.window_size*2 + 1):
-                        i += 1
-                        obs_map[i] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset, -self.window_size + z_offset), axis=(0,1,2))
-        
-        
-        
+    
