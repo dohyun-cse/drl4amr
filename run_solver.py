@@ -42,7 +42,8 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
         while not done:
             done, dt = advection.step()
         InitCond.SetTime(advection.t)
-        print(advection.t, advection.sol.ComputeL2Error(advection.initial_condition))
+        error, errors = advection.compute_L2_errors(InitCond)
+        
         advection.render()
     
 def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
