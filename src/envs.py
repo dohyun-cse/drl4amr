@@ -29,12 +29,18 @@ from ray.rllib.utils.typing import (
 )
 
 import src.solvers as solver
-
+if 'mfem.ser' in sys.modules:
+    MFEM_USE_MPI = False
+    import mfem.ser as mfem
+else:
+    MFEM_USE_MPI = True
+    from mpi4py import MPI
 
 class HyperbolicAMREnv(MultiAgentEnv):
     def __init__(self, 
                  solver_name:str, 
                  solver_args:Dict=None,
+                 regrid_time=-1.0,
                  refine_mode='p',
                  window_size=3, 
                  seed:Optional[float]=None):
@@ -46,19 +52,61 @@ class HyperbolicAMREnv(MultiAgentEnv):
             self.solver = solver.EulerSolver(**solver_args)
         else:
             raise ValueError(f'Unsupported solver name: {solver_name}.')
+        
+        if regrid_time < 0 or regrid_time > solver_args.get('terminal_time', 2):
+            raise ValueError(f'Regrid time is not provided or larger than the terminal time: {regrid_time}')
+        
+        self.regrid_time = regrid_time
         self.refine_mode = refine_mode
         self.window_size = window_size
         self.randomize = seed is not None
         self.seed = seed
     
     def reset(self, *, seed: Optional[int]=None, options: Optional[dict] = None):
-        pass
+        self.solver.reset()
+        
     
     def step(self, action_dict:MultiAgentDict) -> Tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
     ]:
-        pass
+        """Returns observations from ready agents.
+
+        The returns are dicts mapping from agent_id strings to values. The
+        number of agents in the env can vary over time.
+
+        Returns:
+            Tuple containing 1) new observations for
+            each ready agent, 2) reward values for each ready agent. If
+            the episode is just started, the value will be None.
+            3) Terminated values for each ready agent. The special key
+            "__all__" (required) is used to indicate env termination.
+            4) Truncated values for each ready agent.
+            5) Info values for each agent id (may be empty dicts).
+        """
+        marked = self.convert_to_marked(action_dict)
+        
+        self.solver.refine(marked)
+        if self.observation_norm in ['L2', 'Linfty']:
+            errors = mfem.Vector(self.solver.mesh.GetNE())
+            for i in range(errors.Size()):
+                errors[i] = 0.0
+            done = False
+            while not done:
+                done = self.solver.step()
+                current_errors = self.estimate(self.solver.sol)
+                if self.observation_norm == "L2":
+                    for i in range(errors.Size()):
+                        errors[i] += current_errors[i]**2
+                else:
+                    for i in range(errors.Size()):
+                        errors[i] = max(errors[i], current_errors[i])
+                
+        elif self.observation_norm == 'at_regrid_time':
+            self.solver.step(self.regrid_time)
+            errors = self.estimate(self.solver.sol)
+            average_flux_jacobian = self.solver.ComputeFluxJacobian()
+        
     def render(self):
-        pass
+        self.solver.render()
     
     
