@@ -4,14 +4,16 @@ if 'mfem.ser' in sys.modules:
     import mfem.ser as mfem
     from mfem.ser import \
         getAdvectionEquation, getBurgersEquation, getShallowWaterEquation, getEulerSystem, \
-        RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws
+        RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws, HyperbolicFormIntegrator, \
+           AdvectionFormIntegrator, BurgersFormIntegrator, ShallowWaterFormIntegrator, EulerFormIntegrator
 else:
     MFEM_USE_MPI = True
     from mpi4py import MPI
     import mfem.par as mfem
     from mfem.par import \
         getAdvectionEquation, getBurgersEquation, getShallowWaterEquation, getEulerSystem, \
-        RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws
+        RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws, HyperbolicFormIntegrator, \
+           AdvectionFormIntegrator, BurgersFormIntegrator, ShallowWaterFormIntegrator, EulerFormIntegrator
 
 import numpy as np
 
@@ -24,6 +26,7 @@ class Solver:
         self.sdim = mesh.Dimension()
         self.vdim = num_equations
         self.fec = mfem.DG_FECollection(order, self.sdim)
+        self.fecP0 = mfem.DG_FECollection(0, self.sdim)
         self._isParallel = False
         if MFEM_USE_MPI:
             if isinstance(mesh, mfem.ParMesh):
@@ -32,15 +35,21 @@ class Solver:
                         "The provided parallel mesh is a conforming mesh. Please provide a non-conforming parallel mesh.")
                 self._isParallel = True
                 self.fespace = mfem.ParFiniteElementSpace(
-                    mesh, self.fec, self.vdim)
+                    mesh, self.fec, self.vdim, mfem.Ordering.byNODES)
+                self.constant_space = mfem.ParFiniteElementSpace(
+                    mesh, self.fecP0, self.vdim, mfem.Ordering.byNODES)
                 self._sol = mfem.ParGridFunction(self.fespace)
             else:
                 self.fespace = mfem.FiniteElementSpace(
-                    mesh, self.fec, self.vdim)
+                    mesh, self.fec, self.vdim, mfem.Ordering.byNODES)
+                self.constant_space = mfem.FiniteElementSpace(
+                    mesh, self.fecP0, self.vdim, mfem.Ordering.byNODES)
                 self._sol = mfem.GridFunction(self.fespace)
         else:
             self.fespace = mfem.FiniteElementSpace(
-                mesh, self.fec, self.vdim)
+                mesh, self.fec, self.vdim, mfem.Ordering.byNODES)
+            self.constant_space = mfem.FiniteElementSpace(
+                mesh, self.fecP0, self.vdim, mfem.Ordering.byNODES)
             self._sol = mfem.GridFunction(self.fespace)
         self.rsolver = RusanovFlux()
         self.ode_solver = ode_solver
@@ -48,6 +57,8 @@ class Solver:
         self.ode_solver.Init(self.HCL)
         self.CFL = cfl
         self.terminal_time = terminal_time
+        
+        self.element_geometry = self.mesh.GetElementGeometry(0)
 
     def init(self, u0: mfem.VectorFunctionCoefficient):
         self.t = 0.0
@@ -69,6 +80,7 @@ class Solver:
                 self._initial_mesh, self.fec, self.vdim)
             self._sol = mfem.GridFunction(self._fespace)
         self._sol.ProjectCoefficient(self.initial_condition)
+        self.t = 0.0
 
     def getSystem(self, **kwargs):
         raise NotImplementedError(
@@ -158,6 +170,25 @@ class Solver:
             transfer = mfem.PRefinementTransferOperator(old_fes, self.fespace)
             transfer.Mult(old_sol, self._sol)
 
+    def ComputeElementAverageFluxJacobian(self):
+        average_state = mfem.GridFunction(self.constant_space)
+        self.sol.GetElementAverages(average_state)
+        intrule:mfem.IntegrationRule = mfem.IntRules.Get(self.element_geometry, 0)
+        ip = intrule.IntPoint(0)
+        
+        Jacobians = mfem.DenseTensor(self.vdim, self.vdim, self.sdim*self.mesh.GetNE())
+        memory_J = Jacobians.GetMemory()
+        memory_J
+        eigs = mfem.DenseMatrix(self.vdim, self.sdim*self.mesh.GetNE())
+        for i in range(self.mesh.GetNE()):
+            current_state = mfem.Vector(average_state, self.vdim*i, self.vdim)
+            current_J = mfem.DenseTensor(Jacobians.GetData(self.sdim*i), self.vdim, self.vdim, self.sdim)
+            current_eigs = mfem.DenseMatrix(eigs.GetColumn(self.sdim*i), self.vdim, self.sdim)
+            trans = self.mesh.GetElementTransformation(i)
+            trans.SetIntPoint(ip)
+            self.formIntegrator.ComputeFluxJacobian(current_state, trans, current_J, current_eigs)
+        print(Jacobians)
+        
     def update_min_h(self):
         self.min_h = min([self._mesh.GetElementSize(i, 1)
                          for i in range(self._mesh.GetNE())])
@@ -174,8 +205,12 @@ class Solver:
     def init_renderer(self):
         raise NotImplementedError(
             "init_renderer should be implemented in the subclass")
-
-    # PROPERTIES
+        
+    def set_estimator(self, estimator):
+        pass
+    
+    def estimate(self):
+        pass
 
     @property
     def mesh(self):
@@ -187,7 +222,7 @@ class Solver:
             'Mesh should not be modified by solver.mesh = mesh. Either create a new solver, or change finite element space.')
 
     @property
-    def fespace(self):
+    def fespace(self) -> mfem.FiniteElementSpace:
         return self._fespace
 
     @fespace.setter
@@ -200,18 +235,18 @@ class Solver:
                 else:
                     raise ValueError(
                         'The solver is initialized with serial mesh, but tried to overwrite FESpace with parallel FESpace.')
-        self._mesh: mfem.Mesh = new_fespace.GetMesh()
         self._fespace = new_fespace
         if self._isParallel:
-            self._pmesh: mfem.ParMesh = self._fespace.GetParMesh()
-            self._initial_mesh = mfem.ParMesh(self._mesh)
+            self._mesh: mfem.ParMesh = self._fespace.GetParMesh()
+            self._initial_mesh = mfem.ParMesh(self._mesh, True)
         else:
+            self._mesh: mfem.Mesh = self._fespace.Mesh()
             self._initial_mesh = mfem.Mesh(self._mesh)
         self.update_min_h()
         self.update_max_order()
 
     @property
-    def sol(self):
+    def sol(self) -> mfem.GridFunction | mfem.ParGridFunction:
         return self._sol
 
     @sol.setter
@@ -220,7 +255,15 @@ class Solver:
             raise ValueError(
                 'The provided grid function is not a function in the current finite element space.')
         self._sol = gf
-
+        
+    @property
+    def formIntegrator(self) -> mfem.HyperbolicFormIntegrator:
+        return self._formIntegrator
+    
+    @formIntegrator.setter
+    def formIntegrator(self, fi:mfem.HyperbolicFormIntegrator):
+        self._formIntegrator = fi
+        
     @property
     def HCL(self):
         return self._HCL
@@ -241,8 +284,8 @@ class Solver:
 class AdvectionSolver(Solver):
     def getSystem(self, IntOrderOffset=3, **kwargs):
         self.b = kwargs.get('b')
-        self.HCL: DGHyperbolicConservationLaws = getAdvectionEquation(
-            self._fespace, self.rsolver, self.b, IntOrderOffset)
+        self.formIntegrator = AdvectionFormIntegrator(self.rsolver, self.sdim, self.b, 3)
+        self.HCL = DGHyperbolicConservationLaws(self.fespace, self.formIntegrator, self.vdim)
 
     def render(self):
         self.sout.precision(8)
@@ -261,8 +304,8 @@ class AdvectionSolver(Solver):
 
 class BurgersSolver(Solver):
     def getSystem(self, IntOrderOffset=3, **kwargs):
-        self.HCL: DGHyperbolicConservationLaws = getBurgersEquation(
-            self._fespace, self.rsolver, IntOrderOffset)
+        self.formIntegrator = BurgersFormIntegrator(self.rsolver, self.sdim, 3)
+        self.HCL = DGHyperbolicConservationLaws(self.fespace, self.formIntegrator, self.vdim)
 
     def render(self):
         self.sout.precision(8)
@@ -283,8 +326,8 @@ class EulerSolver(Solver):
     def getSystem(self, IJntOrderOffset=3, **kwargs):
         self.gas_constant = kwargs.get('gas_constant', 1.0)
         self.specific_heat_ratio = kwargs.get('specific_heat_ratio', 1.4)
-        self.HCL: DGHyperbolicConservationLaws = getEulerSystem(
-            self._fespace, self.rsolver, self.specific_heat_ratio, 3)
+        self.formIntegrator = EulerFormIntegrator(self.rsolver, self.sdim, self.specific_heat_ratio, 3)
+        self.HCL = DGHyperbolicConservationLaws(self.fespace, self.formIntegrator, self.vdim)
 
     def render(self):
         if self._isParallel:
