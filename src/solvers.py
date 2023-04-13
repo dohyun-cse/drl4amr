@@ -86,12 +86,11 @@ class Solver:
         raise NotImplementedError(
             "getSystem should be implemented in the subclass")
 
-    def step(self, big_time_step=None):
-        """Advance PDE solver in time. If big_time_step is not provided, then it advance single time-step.
-        If big_time_step>0 is provided, then it advance multi time-steps so that sum of dt = big_time_step
+    def step(self):
+        """Advance FE solution one time step where dt is from CFL condition.
 
         Args:
-            big_time_step (np.double, optional): Target time step size. Defaults to None.
+            max_dt (np.double, optional): Maximum dt.
 
         Raises:
             RuntimeError: When time step size is negative
@@ -99,29 +98,15 @@ class Solver:
         Returns:
             bool: Whether the solver reaches to terminal time or not.
         """
+        dt = self.compute_timestep()
+        real_dt = min(dt, self.terminal_time - self.t)
+        # single step
+        dt = self.compute_timestep()
+        real_dt = min(self.terminal_time - self.t, dt)
+        self.ode_solver.Step(self._sol, self.t, real_dt)
+        self.t += real_dt
+        return ((self.terminal_time - self.t) < dt*1.e-04, real_dt)
         
-        if big_time_step is None:  # single step
-            # single step
-            dt = self.compute_timestep()
-            real_dt = min(self.terminal_time - self.t, dt)
-            self.ode_solver.Step(self._sol, self.t, real_dt)
-            self.t += real_dt
-            return (self.terminal_time - self.t) < dt*1.e-06
-        
-        big_time_step = min(big_time_step, self.terminal_time - self.t)
-        while big_time_step > 0:
-            dt = self.compute_timestep()
-            real_dt = min(dt, big_time_step)
-            if real_dt < 0:
-                    raise RuntimeError(
-                        f"dt is negative: Either computed time step is negative or time exceeded target time.\n\tdt = {dt}, \n\tcurrent time = {self.t}")
-            self.ode_solver.Step(self._sol, self.t, real_dt)
-            self.t += real_dt
-            big_time_step -= real_dt
-        
-        return (self.terminal_time - self.t) < dt*1.e-06
-        
-
     def compute_timestep(self):
         dt = self.CFL * self.min_h / self._HCL.getMaxCharSpeed() / (2*self.max_order + 1)
         if self._isParallel:
@@ -294,7 +279,7 @@ class AdvectionSolver(Solver):
         self.sout.flush()
 
     def init_renderer(self):
-        self.sout = mfem.socketstream("Dohyuns-Macbook", 19916)
+        self.sout = mfem.socketstream("localhost", 19916)
         print(self.sout.good())
         self.sout.precision(8)
         self.sout.send_text("view 0 0")
