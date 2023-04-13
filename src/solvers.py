@@ -18,7 +18,7 @@ else:
 import numpy as np
 
 class Solver:
-    def __init__(self, mesh: mfem.Mesh, order: int, num_equations: int, refinement_mode: str, ode_solver: mfem.ODESolver, cfl, terminal_time, **kwargs):
+    def __init__(self, mesh: mfem.Mesh, order: int, num_equations: int, refinement_mode: str, ode_solver: mfem.ODESolver, cfl, **kwargs):
         self.order = order
         self.max_order = order
         self.num_equations = num_equations
@@ -56,7 +56,6 @@ class Solver:
         self.getSystem(IntOrderOffset=3, **kwargs)
         self.ode_solver.Init(self.HCL)
         self.CFL = cfl
-        self.terminal_time = terminal_time
         
         self.element_geometry = self.mesh.GetElementGeometry(0)
 
@@ -263,6 +262,13 @@ class Solver:
     @renderer_space.setter
     def renderer_space(self, subspace: mfem.FiniteElementSpace):
         self._renderer_space = subspace
+        
+    @property
+    def terminal_time(self) -> float:
+        return self._terminal_time
+    @terminal_time.setter
+    def terminal_time(self, tf:float):
+        self._terminal_time = tf
 
 
 class AdvectionSolver(Solver):
