@@ -80,12 +80,12 @@ def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_tim
 
     done = False
     while not done:
-        done = burgers.step()
+        done = burgers.step(regrid_time)
         print(burgers.t)
         burgers.render()
     print(burgers.sol.ComputeL2Error(burgers.initial_condition))
     
-def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time):
+def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
     @mfem.jit.vector(vdim=4, interface="c++")
     def InitCond(x, out):
         # "Fast vortex"
@@ -156,7 +156,7 @@ def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time):
 
     done = False
     while not done:
-        done = euler.step()
+        done = euler.step(regrid_time)
         print(euler.t)
         euler.render()
     print(euler.sol.ComputeL2Error(euler.initial_condition))
