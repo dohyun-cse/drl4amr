@@ -275,7 +275,7 @@ class Solver:
         self.has_estimator = True
         self.estimator = estimator
     
-    def estimate(self):
+    def estimate(self) -> tuple(float, mfem.Vector):
         if self.has_estimator:
             errors = mfem.Vector(self.mesh.GetNE())
             self.estimator.GetLocalErrors(self.sol, errors)
