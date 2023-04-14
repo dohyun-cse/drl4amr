@@ -19,6 +19,7 @@ import numpy as np
 
 class Solver:
     def __init__(self, mesh: mfem.Mesh, order: int, num_equations: int, refinement_mode: str, ode_solver: mfem.ODESolver, cfl, **kwargs):
+        self.visualization = False # Set True when init_render is called
         self.order = order
         self.max_order = order
         self.num_equations = num_equations
@@ -119,6 +120,13 @@ class Solver:
 
     def render(self):
         raise NotImplementedError("render should be implemented in the subclass")
+    
+    def save(self, postfix:int):
+        self.mesh.Print(f'{self.solver_name}-{postfix:06}.mesh')
+        if self.fespace.IsVariableOrder():
+            mfem.ProlongToMaxOrder(self.sol).Save(f'{self.solver_name}-{postfix:06}.gf')
+        else:
+            self.sol.Save(f'{self.solver_name}-{postfix:06}.gf')
 
     def refine(self, marked: mfem.intArray, coarsening: bool = False):
         if self.refinement_mode == 'h':
@@ -176,7 +184,7 @@ class Solver:
         self.HCL.Update()
         self.fespace.UpdatesFinished()
 
-    def ComputeElementAverageFluxJacobian(self) -> tuple(mfem.DenseTensor, mfem.DenseMatrix):
+    def ComputeElementAverageFluxJacobian(self) -> tuple[mfem.DenseTensor, mfem.DenseMatrix]:
         """Compute element average state ū and compute ∂F(ū)/∂u
 
         Returns:
@@ -236,7 +244,7 @@ class Solver:
         pass
 
     @property
-    def mesh(self):
+    def mesh(self) -> mfem.Mesh:
         return self._mesh
 
     @mesh.setter
@@ -288,7 +296,7 @@ class Solver:
         self._formIntegrator = fi
         
     @property
-    def HCL(self):
+    def HCL(self) -> DGHyperbolicConservationLaws:
         return self._HCL
 
     @HCL.setter
@@ -296,7 +304,7 @@ class Solver:
         self._HCL = new_HCL
 
     @property
-    def renderer_space(self):
+    def renderer_space(self) -> mfem.FiniteElementSpace:
         return self._renderer_space
 
     @renderer_space.setter
@@ -313,67 +321,101 @@ class Solver:
 
 class AdvectionSolver(Solver):
     def getSystem(self, IntOrderOffset=3, **kwargs):
+        self.solver_name = 'advection'
         self.b = kwargs.get('b')
         self.formIntegrator = AdvectionFormIntegrator(self.rsolver, self.sdim, self.b, 3)
         self.HCL = DGHyperbolicConservationLaws(self.fespace, self.formIntegrator, self.vdim)
 
     def render(self):
-        self.sout.precision(8)
-        self.sout << "solution\n" << self._mesh << self._sol
-        self.sout.flush()
+        if self.visualization:
+            if self.sout.is_open():
+                self.sout.precision(8)
+                if self.fespace.IsVariableOrder():
+                    self.sout.send_solution(self._mesh, mfem.ProlongToMaxOrder(self._sol))
+                else:
+                    self.sout.send_solution(self._mesh, self._sol)
+                self.sout.flush()
+            else:
+                print("GLVis is closed.")
+                self.visualization = False
 
     def init_renderer(self):
+        self.visualization = True
         self.sout = mfem.socketstream("localhost", 19916)
         if not self.sout.good():
             print("Unable to open GLVis.")
+            return
         self.sout.precision(8)
-        self.sout.send_text("view 0 0")
-        self.sout.send_text("keys jl")
+        self.sout.send_solution(self._mesh, self._sol)
+        self.sout.send_text("view 0 0\n")
+        self.sout.send_text("keys jlm")
         self.sout.send_solution(self._mesh, self._sol)
         self.sout.flush()
 
 
 class BurgersSolver(Solver):
     def getSystem(self, IntOrderOffset=3, **kwargs):
+        self.solver_name = 'burgers'
         self.formIntegrator = BurgersFormIntegrator(self.rsolver, self.sdim, 3)
         self.HCL = DGHyperbolicConservationLaws(self.fespace, self.formIntegrator, self.vdim)
 
     def render(self):
-        self.sout.precision(8)
-        self.sout << "solution\n" << self._mesh << self._sol
-        self.sout.flush()
+        if self.visualization:
+            if self.sout.is_open():
+                self.sout.precision(8)
+                if self.fespace.IsVariableOrder():
+                    self.sout.send_solution(self._mesh, mfem.ProlongToMaxOrder(self._sol))
+                else:
+                    self.sout.send_solution(self._mesh, self._sol)
+                self.sout.flush()
+            else:
+                print("GLVis is closed.")
+                self.visualization = False
 
     def init_renderer(self):
-        self.sout = mfem.socketstream("Dohyuns-Macbook", 19916)
-        print(self.sout.good())
+        self.sout = mfem.socketstream("localhost", 19916)
+        if not self.sout.good():
+            print("Unable to open GLVis.")
+            return
         self.sout.precision(8)
-        self.sout.send_text("view 0 0")
-        self.sout.send_text("keys jl")
         self.sout.send_solution(self._mesh, self._sol)
+        self.sout.send_text("view 0 0")
+        self.sout.send_text("keys jlm")
         self.sout.flush()
 
 
 class EulerSolver(Solver):
     def getSystem(self, IJntOrderOffset=3, **kwargs):
+        self.solver_name = 'euler'
         self.gas_constant = kwargs.get('gas_constant', 1.0)
         self.specific_heat_ratio = kwargs.get('specific_heat_ratio', 1.4)
         self.formIntegrator = EulerFormIntegrator(self.rsolver, self.sdim, self.specific_heat_ratio, 3)
         self.HCL = DGHyperbolicConservationLaws(self.fespace, self.formIntegrator, self.vdim)
 
     def render(self):
-        # if self._isParallel:
-        #     self.sout.send_text("parallel " + str(MPI.COMM_WORLD.size) +
-        #                    " " + str(MPI.COMM_WORLD.rank))
-        #     self.sout.send_solution()
-        self.sout.send_solution(self.mesh, self.solution)
+        # TODO: Visualize momentum / density / pressure ... etc
+        if self.visualization:
+            if self.sout.is_open():
+                self.sout.precision(8)
+                if self.fespace.IsVariableOrder():
+                    self.sout.send_solution(self._mesh, mfem.ProlongToMaxOrder(self._sol))
+                else:
+                    self.sout.send_solution(self._mesh, self._sol)
+                self.sout.flush()
+            else:
+                print("GLVis is closed.")
+                self.visualization = False
 
     def render(self):
         self.sout.precision(8)
-        self.sout << "solution\n" << self._mesh << self._sol
+        self.sout.send_solution(self._mesh, self._sol)
         self.sout.flush()
 
     def init_renderer(self):
         self.sout = mfem.socketstream("localhost", 19916)
+        if not self.sout.good():
+            print("Unable to open GLVis.")
+            return
         self.sout.send_text("view 0 0")
-        self.sout.send_text("keys jl")
+        self.sout.send_text("keys jlm")
         self.sout.flush()
