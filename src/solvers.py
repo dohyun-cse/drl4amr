@@ -122,6 +122,12 @@ class Solver:
         raise NotImplementedError("render should be implemented in the subclass")
     
     def save(self, postfix:int):
+        """Save mesh and solution with <solver_name>-<postfix:06>.mesh/gf.
+        Perform ProlongToMaxOrder if variable order.
+
+        Args:
+            postfix (int): postfix for filename. Should be less than or equal to 6 digits
+        """
         self.mesh.Print(f'{self.solver_name}-{postfix:06}.mesh')
         if self.fespace.IsVariableOrder():
             mfem.ProlongToMaxOrder(self.sol).Save(f'{self.solver_name}-{postfix:06}.gf')
@@ -129,6 +135,17 @@ class Solver:
             self.sol.Save(f'{self.solver_name}-{postfix:06}.gf')
 
     def refine(self, marked: mfem.intArray, coarsening: bool = False):
+        """Perform general h/p mesh refinement
+        For h-refinement, marked elements will be divided into 2^dim elements
+        For p-refinement, order[i] = base_order + marked[i]
+
+        Args:
+            marked (mfem.intArray): Refine elements where marked[i]=True
+            coarsening (bool, optional): Used only when refinement_mode='h'. Defaults to False.
+
+        Raises:
+            ValueError: Check whether refinement_mode is correctly set or not
+        """
         if self.refinement_mode == 'h':
             if coarsening:
                 self.hDerefine(marked)
@@ -141,46 +158,62 @@ class Solver:
                 f"Refinement mode should be either 'h' or 'p', but {self.refinement_mode} is provided.")
 
     def hRefine(self, marked):
+        # TODO: Keep an array that preserves initial element index such as idx[i] = original_index
+        # IDEA: Initialize idx = 0...N and transfer this to refined mesh by using transfer operator
+        
         self.fespace.Update()
         self.sol.Update()
         self.HCL.Update()
         self.update_min_h()
-        pass
+        raise NotImplementedError("Not yet implemented")
 
     def hDerefine(self, marked):
         self.fespace.Update()
         self.sol.Update()
         self.HCL.Update()
         self.update_min_h()
-        pass
+        raise NotImplementedError("Not yet implemented")
 
-    def pRefine(self, marked):
+    def pRefine(self, marked, base='base_order'):
+        """Perform p-refinement with given marker
+
+        Args:
+            marked (_type_): Shift from the target base order
+            base (str, optional): Either refinement will be performed with base_order or current_order.
+            If base_order, order[i] = self.order + marked[i]. If current_order, order[i] += marked[i].
+            Defaults to 'base_order'.
+
+        Raises:
+            ValueError: If provided base is neither 'base_order' nor 'current_order'
+        """
+        if self.t != 0: # Copying old fes is only necessary when t is non-zero
+            old_fes = mfem.FiniteElementSpace(self.mesh, self.fec)
+            for i in range(self.mesh.GetNE()):
+                old_fes.SetElementOrder(i, self.fespace.GetElementOrder(i))
         
-        # COPY
-        # if self._isParallel:
-        #     old_fes = mfem.ParFiniteElementSpace(self.mesh, self.fec)
-        # else:
-        old_fes = mfem.FiniteElementSpace(self.mesh, self.fec)
-        for i in range(self.mesh.GetNE()):
-            old_fes.SetElementOrder(i, self.fespace.GetElementOrder(i))
-        
-        # UPDATE
-        for i in range(self.mesh.GetNE()):
-            self.fespace.SetElementOrder(i, marked[i])
+        # Update FESpace
+        if base == 'base_order': # order[i] = base_order + marked[i]
+            for i in range(self.mesh.GetNE()):
+                self.fespace.SetElementOrder(i, self.order + marked[i])
+        elif base == 'current_order': # order[i] = current_order[i] + marked[i]
+            for i in range(self.mesh.GetNE()):
+                self.fespace.SetElementOrder(i, self.fespace.GetElementOrder(i) + marked[i])
+        else:
+            raise ValueError(f"pRefine only supports 'base_order' or 'current_order' base, but {base} is given.")
         self.fespace.Update(False)
         
-        if self.t == 0:
+        # Update solution
+        if self.t == 0: # if initial time
             self.sol.Update()
-            self.sol.ProjectCoefficient(self.initial_condition)
-        else:
-            # if self._isParallel:
-            #     new_sol = mfem.ParGridFunction(self.fespace)
-            # else:
+            self.sol.ProjectCoefficient(self.initial_condition) # reproject
+        else: # otherwise, transfer from previous space to new space
             new_sol = mfem.GridFunction(self.fespace)
             
             op = mfem.PRefinementTransferOperator(old_fes, self.fespace)
             op.Mult(self.sol, new_sol)
             self.sol = new_sol
+        
+        # Update DGHyperbolic and notify fespace that update is finished
         self.HCL.Update()
         self.fespace.UpdatesFinished()
 
