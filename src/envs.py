@@ -49,9 +49,29 @@ class HyperbolicAMREnv(MultiAgentEnv):
                  terminal_time:float= -1.0,
                  refine_mode:str='p',
                  window_size:int=3,
+                 observation_norm:str='L2',
                  visualization:bool=False,
                  seed:Optional[int]=None,
                  solver_args:Dict=None):
+        """Hyperbolic DynAMO Environment. Create a solver, refine based on given actions, and make observations
+
+        Args:
+            solver_name (str): 'advection', 'euler', 'burgers', 'shallow_water'(to be supported)
+            num_grids (Sequence[int], optional): How many elements in each axis. Defaults to [10, 10].
+            domain_size (Sequence[float], optional): Domain length in each axis. Defaults to [1., 1.].
+            offsets (Sequence[float], optional): Domain offset from the origin. Defaults to [0., 0.].
+            regrid_time (float, optional): Regrid time. Defaults to -1.0.
+            terminal_time (float, optional): Terminal time of the simulation. Defaults to -1.0.
+            refine_mode (str, optional): 'h' or 'p'. Defaults to 'p'.
+            window_size (int, optional): How far an agent can take a look. Defaults to 3.
+            observation_norm (str, optional): Time norm used for error observation, 'L2', 'Linfty', 'at_regrid_time'. Defaults to 'L2'.
+            visualization (bool, optional): Whether env renders the solution or not. Defaults to False.
+            seed (Optional[int], optional): seed used for randomizing the problem. Defaults to None.
+            solver_args (Dict, optional): Solver-specific arguments, e.g. initial condition, velocity, etc. Defaults to None.
+
+        Raises:
+            ValueError: _description_
+        """
         
         #region Create Mesh
         # Uniform tensor elements
