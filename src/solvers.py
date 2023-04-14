@@ -61,6 +61,7 @@ class Solver:
         self.CFL = cfl
         
         self.element_geometry = self.mesh.GetElementGeometry(0)
+        self.has_estimator =  False # Use set_estimator
 
     def init(self, u0: mfem.VectorFunctionCoefficient):
         self.t = 0.0
@@ -270,11 +271,18 @@ class Solver:
         raise NotImplementedError(
             "init_renderer should be implemented in the subclass")
         
-    def set_estimator(self, estimator):
-        pass
+    def set_estimator(self, estimator:mfem.ErrorEstimator):
+        self.has_estimator = True
+        self.estimator = estimator
     
     def estimate(self):
-        pass
+        if self.has_estimator:
+            errors = mfem.Vector(self.mesh.GetNE())
+            self.estimator.GetLocalErrors(self.sol, errors)
+            total_error = np.sqrt(errors*errors)
+        else:
+            total_error, errors = self.compute_L2_errors(self.initial_condition)
+        return (total_error, errors)
 
     @property
     def mesh(self) -> mfem.Mesh:
