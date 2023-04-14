@@ -91,11 +91,12 @@ class Solver:
         raise NotImplementedError(
             "getSystem should be implemented in the subclass")
 
-    def step(self):
+    def step(self) -> tuple(bool, float):
         """Advance FE solution one time step where dt is from CFL condition.
 
         Returns:
             bool: Whether the solver reaches to terminal time or not.
+            float: time step size
         """
         dt = self.compute_timestep()
         real_dt = min(dt, self.terminal_time - self.t)
