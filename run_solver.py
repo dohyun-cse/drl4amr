@@ -1,6 +1,6 @@
 import mfem.ser as mfem
 from mfem.ser import ProlongToMaxOrder
-import src.solvers as solver
+import src.hcl_solver as solver
 import numpy as np
 
 
