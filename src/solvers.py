@@ -368,23 +368,27 @@ class AdvectionSolver(Solver):
         self.HCL = DGHyperbolicConservationLaws(self.fespace, self.formIntegrator, self.vdim)
 
     def render(self):
-        if self.visualization:
-            if self.sout.is_open():
-                self.sout.precision(8)
-                if self.fespace.IsVariableOrder():
-                    self.sout.send_solution(self._mesh, mfem.ProlongToMaxOrder(self._sol))
-                else:
-                    self.sout.send_solution(self._mesh, self._sol)
-                self.sout.flush()
-            else:
-                print("GLVis is closed.")
-                self.visualization = False
+        if not self.visualization:
+            return
+        
+        if not self.sout.is_open():
+            print("GLVis is closed.")
+            self.visualization = False
+            return
+        
+        self.sout.precision(8)
+        if self.fespace.IsVariableOrder():
+            self.sout.send_solution(self._mesh, mfem.ProlongToMaxOrder(self._sol))
+        else:
+            self.sout.send_solution(self._mesh, self._sol)
+        self.sout.flush()
 
     def init_renderer(self):
         self.visualization = True
         self.sout = mfem.socketstream("localhost", 19916)
         if not self.sout.good():
             print("Unable to open GLVis.")
+            self.visualization = False
             return
         self.sout.precision(8)
         self.sout.send_solution(self._mesh, self._sol)
@@ -401,23 +405,28 @@ class BurgersSolver(Solver):
         self.HCL = DGHyperbolicConservationLaws(self.fespace, self.formIntegrator, self.vdim)
 
     def render(self):
-        if self.visualization:
-            if self.sout.is_open():
-                self.sout.precision(8)
-                if self.fespace.IsVariableOrder():
-                    self.sout.send_solution(self._mesh, mfem.ProlongToMaxOrder(self._sol))
-                else:
-                    self.sout.send_solution(self._mesh, self._sol)
-                self.sout.flush()
-            else:
-                print("GLVis is closed.")
-                self.visualization = False
+        if not self.visualization:
+            return
+        
+        if not self.sout.is_open():
+            print("GLVis is closed.")
+            self.visualization = False
+            return
+        
+        self.sout.precision(8)
+        if self.fespace.IsVariableOrder():
+            self.sout.send_solution(self._mesh, mfem.ProlongToMaxOrder(self._sol))
+        else:
+            self.sout.send_solution(self._mesh, self._sol)
+        self.sout.flush()
 
     def init_renderer(self):
         self.sout = mfem.socketstream("localhost", 19916)
         if not self.sout.good():
             print("Unable to open GLVis.")
+            self.visualization = False
             return
+        
         self.sout.precision(8)
         self.sout.send_solution(self._mesh, self._sol)
         self.sout.send_text("view 0 0")
@@ -435,27 +444,26 @@ class EulerSolver(Solver):
 
     def render(self):
         # TODO: Visualize momentum / density / pressure ... etc
-        if self.visualization:
-            if self.sout.is_open():
-                self.sout.precision(8)
-                if self.fespace.IsVariableOrder():
-                    self.sout.send_solution(self._mesh, mfem.ProlongToMaxOrder(self._sol))
-                else:
-                    self.sout.send_solution(self._mesh, self._sol)
-                self.sout.flush()
-            else:
-                print("GLVis is closed.")
-                self.visualization = False
-
-    def render(self):
+        if not self.visualization:
+            return
+        
+        if not self.sout.is_open():
+            print("GLVis is closed.")
+            self.visualization = False
+            return
+        
         self.sout.precision(8)
-        self.sout.send_solution(self._mesh, self._sol)
+        if self.fespace.IsVariableOrder():
+            self.sout.send_solution(self._mesh, mfem.ProlongToMaxOrder(self._sol))
+        else:
+            self.sout.send_solution(self._mesh, self._sol)
         self.sout.flush()
 
     def init_renderer(self):
         self.sout = mfem.socketstream("localhost", 19916)
         if not self.sout.good():
             print("Unable to open GLVis.")
+            self.visualization = False
             return
         self.sout.send_text("view 0 0")
         self.sout.send_text("keys jlm")
