@@ -276,11 +276,52 @@ class HyperbolicAMREnv(MultiAgentEnv):
                         i += 1
                         obs_map[i] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset, -self.window_size + z_offset), axis=(0,1,2))
     
+    def compute_threshold(self, errors:mfem.Vector) -> tuple(float, float):
+        """Compute Threshold (E, δ) where E = mean(errors) and δ = Z*s
+        where Z = 1.645 / sqrt(n) from 90% confidence interval
+        and s is the standard deviation.
+
+        Args:
+            self (_type_): ..
+            errors (mfem.Vector): element-wise error
+
+        Returns:
+            tuple(float, float): Target error, E, and margin δ.
+        """
+        target = errors.Sum() / errors.Size()
+        
+        deviation = errors*errors / errors.Size() - target**2
+        margin = 1.645/np.sqrt(errors.Size())*np.sqrt(deviation)
+        
+        return (target, margin)
+    
+    def compute_reward(self, errors:mfem.Vector, actions:np.ndarray, target, margin, hasCoarsening=False) -> np.ndarray:
+        """Compute rewards based on previous action and current target with margin.
+        If error < target - margin and action[i] != coarsening, then reward = |error - target|
+        If error > target + margin and action[i] != refining, then reward = |error - taget|
+
+        Args:
+            errors (mfem.Vector): Current errors
+            actions (np.ndarray): Previous actions, -1: coarsening, 0: do-nothing, 1: refining
+            target (_type_): _description_
+            margin (_type_): _description_
+            hasCoarsening ()
+
+        Returns:
+            np.ndarray: _description_
+        """
+        errors = errors.GetDataArray()
+        
+        hasLargeError = errors > target + margin
+        badChoice = np.logical_and(hasLargeError, np.not_equal(actions, 1))
+        if hasCoarsening:
+            hasSmallError = errors < target - margin
+            badChoice = np.logical_or(np.logical_and(hasSmallError, np.not_equal(actions, -1)))
+        
+        return badChoice*np.abs(errors - target)
+    
     @property
     def obs_map(self) -> np.ndarray:
         return self._obs_map
     def obs_map(self, new_map:np.ndarray):
         self._obs_map = new_map
-        
-        
-        
