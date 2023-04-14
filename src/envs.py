@@ -185,7 +185,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
             # if error should be measured at each time step
             if self.observation_norm in ['L2', 'Linfty']:
                 # compute error
-                current_total_error, current_errors = self.solver.compute_L2_errors()
+                current_total_error, current_errors = self.solver.estimate()
                 current_errors = current_errors.GetDataArray()
                 if self.observation_norm == 'L2':
                     # square it and weighted sum with dt
