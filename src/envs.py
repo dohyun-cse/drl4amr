@@ -172,7 +172,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
         self.solver.refine(marked)
         
         #region Advance in time        
-        errors = np.zeros((self.solver.mesh.GetNE(),),np.double)
+        errors = np.zeros((self.solver.mesh.GetNE(),),float)
         total_error = 0.0
         for i in range(errors.Size()):
             errors[i] = 0.0

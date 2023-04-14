@@ -57,8 +57,8 @@ def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_tim
         meshfile (str): mesh file
         order (int): order of polynomial
         ode_solver_type (int): ode solver type. 1: Euler, 2-4 and 6: RK
-        cfl (np.double): CFL number
-        terminal_time (np.double): terminal time
+        cfl (float): CFL number
+        terminal_time (float): terminal time
     """
     @mfem.jit.vector(vdim=1, interface="c++", sdim=2)
     def InitCond(x, out):
