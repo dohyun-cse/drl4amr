@@ -36,13 +36,17 @@ echo "}" >> $FILE
 echo "{" >> $FILE
 for i in "${!solutions[@]}"
 do
-   #  echo "    keys ~jlm" >> $FILE
-    echo "    solution ${meshes[$i]} ${solutions[$i]} screenshot ${solutions[$i]/.gf/.png}" >> $FILE
+    if [[ "$nrMeshes" == "1" ]]
+    then
+        echo "    solution ${meshes[0]} ${solutions[$i]} screenshot ${solutions[$i]/.gf/.png}" >> $FILE
+    else
+        echo "    solution ${meshes[$i]} ${solutions[$i]} screenshot ${solutions[$i]/.gf/.png}" >> $FILE
+    fi
 done
 echo "    keys q" >> $FILE
 echo "}" >> $FILE
 
-glvis -run $FILE -k
+glvis -run $FILE
 rm $FILE
 
 convert -delay 10 -loop 0 $prefix-*.png $prefix.gif
