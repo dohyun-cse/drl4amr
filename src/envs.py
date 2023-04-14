@@ -5,6 +5,8 @@ import math
 import gymnasium as gym
 import sys
 
+from gymnasium.spaces import Dict as gymDict
+
 from gymnasium import spaces, utils
 from gymnasium.spaces import Box, Discrete
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
@@ -29,12 +31,13 @@ from ray.rllib.utils.typing import (
 )
 
 import src.solvers as solver
-if 'mfem.ser' in sys.modules:
-    MFEM_USE_MPI = False
-    import mfem.ser as mfem
-else:
-    MFEM_USE_MPI = True
-    from mpi4py import MPI
+# if 'mfem.ser' in sys.modules:
+    # MFEM_USE_MPI = False
+import mfem.ser as mfem
+# else:
+#     MFEM_USE_MPI = True
+#     from mpi4py import MPI
+#     import mfem.par as mfem
 
 class HyperbolicAMREnv(MultiAgentEnv):
     def __init__(self, 
@@ -52,7 +55,9 @@ class HyperbolicAMREnv(MultiAgentEnv):
         
         #region Create Mesh
         # Uniform tensor elements
-        self.num_grids = num_grids
+        self.num_grids = np.array(num_grids)
+        self.domain_size = np.array(domain_size)
+        self.grid_size = self.domain_size / self.num_grids
         if len(num_grids) == 1:
             self.mesh:mfem.Mesh = mfem.Mesh.MakeCartesian1D(n=num_grids[0], sx=domain_size[0])
             translations = (mfem.Vector([domain_size[0]]))
@@ -116,6 +121,12 @@ class HyperbolicAMREnv(MultiAgentEnv):
         self.window_size = window_size
         self.seed = seed
         self.visualization = visualization
+        
+        self.action_space = Discrete(2)
+        self.observation_space = Box(
+            low=-18.0, high=10.0,
+            shape=((self.solver.vdim**2*self.solver.sdim + 1)*(self.window_size*2 + 1)**self.solver.sdim),
+                dtype=np.float32)
         
     def reset(self, *, seed: Optional[int]=None, options: Optional[dict] = None):
         self.solver.reset()
@@ -189,17 +200,30 @@ class HyperbolicAMREnv(MultiAgentEnv):
         #endregion
         
         #region FluxJacobian
+        
+        # Compute element-wise Jacobian and Eigen Values
         Jacobian, eigs = self.solver.ComputeElementAverageFluxJacobian()
-        Jacobian = Jacobian.GetDataArray().reshape((self.solver.vdim**2*self.solver.sdim, self.solver.mesh.GetNE()))
-        Jacobian = 
+        Jacobian = Jacobian.GetDataArray().reshape((self.solver.vdim**2, self.solver.sdim, self.solver.mesh.GetNE()))
+        
+        # TODO: If h-refinement, then accumulate it over child elements.
+        # something like
+        # Jacobian = colwise_accumarray(elem_to_initElem, Jacobian, op=np.mean)
+        
+        # reweight Jacobian by J*Dt/h
+        Jacobian = Jacobian * (self.regrid_time/self.grid_size.reshape((1, -1)))
+        Jacobian = Jacobian.reshape((-1, self.solver.mesh.GetNE()))
         eigs = eigs.GetDataArray().reshape((self.solver.vdim*self.solver.sdim, self.solver.mesh.GetNE()))
         #endregion
         
-        #region Make Map!
+        #region Construct Observation!
         
         # make element-wise observation obs[:,i] = [error, Jacobians]
         elementwise_observation = np.append(errors.reshape((1, self.solver.mesh.GetNE())), Jacobian, axis=0)
         observation = elementwise_observation[:, self.obs_map].reshape((-1, self.solver.mesh.GetNE()))
+        
+        #endregion
+        
+        #region Dict
         
         #endregion
         
