@@ -30,7 +30,7 @@ from ray.rllib.utils.typing import (
     MultiEnvDict,
 )
 
-import src.solvers as solver
+import hcl.hcl_solver as solver
 # if 'mfem.ser' in sys.modules:
     # MFEM_USE_MPI = False
 import mfem.ser as mfem

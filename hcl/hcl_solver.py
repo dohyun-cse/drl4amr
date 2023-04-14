@@ -91,7 +91,7 @@ class Solver:
         raise NotImplementedError(
             "getSystem should be implemented in the subclass")
 
-    def step(self) -> tuple(bool, float):
+    def step(self) -> tuple[bool, float]:
         """Advance FE solution one time step where dt is from CFL condition.
 
         Returns:
@@ -276,7 +276,7 @@ class Solver:
         self.has_estimator = True
         self.estimator = estimator
     
-    def estimate(self) -> tuple(float, mfem.Vector):
+    def estimate(self) -> tuple[float, mfem.Vector]:
         if self.has_estimator:
             errors = mfem.Vector(self.mesh.GetNE())
             self.estimator.GetLocalErrors(self.sol, errors)
@@ -422,6 +422,7 @@ class BurgersSolver(Solver):
         self.sout.flush()
 
     def init_renderer(self):
+        self.visualization = True
         self.sout = mfem.socketstream("localhost", 19916)
         if not self.sout.good():
             print("Unable to open GLVis.")
@@ -461,6 +462,7 @@ class EulerSolver(Solver):
         self.sout.flush()
 
     def init_renderer(self):
+        self.visualization = True
         self.sout = mfem.socketstream("localhost", 19916)
         if not self.sout.good():
             print("Unable to open GLVis.")
