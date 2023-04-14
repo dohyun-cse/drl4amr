@@ -130,11 +130,9 @@ class HyperbolicAMREnv(MultiAgentEnv):
             raise ValueError(f'Unsupported solver name: {solver_name}.')
         #endregion
         
-        if regrid_time < 0 or regrid_time > solver_args.get('terminal_time', 2):
-            raise ValueError(f'Regrid time is not provided or larger than the terminal time: {regrid_time}')
-        
-        self.observation_norm = 'L2'
-        self.flux_observation = 'at_regrid_time'
+        self.observation_norm = observation_norm
+        # In the future, this should be input-arguments
+        self.observation_flux_norm = 'at_regrid_time'
         self.regrid_time = regrid_time
         self.terminal_time = terminal_time
         self.refine_mode = refine_mode
@@ -144,7 +142,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
         
         self.action_space = Discrete(2)
         self.observation_space = Box(
-            low=-18.0, high=10.0,
+            low=-20.0, high=20.0,
             shape=((self.solver.vdim**2*self.solver.sdim + 1)*(self.window_size*2 + 1)**self.solver.sdim),
                 dtype=np.float32)
         
