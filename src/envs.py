@@ -237,14 +237,17 @@ class HyperbolicAMREnv(MultiAgentEnv):
         
         # make element-wise observation obs[:,i] = [error, Jacobians]
         elementwise_observation = np.append(errors.reshape((1, self.solver.mesh.GetNE())), Jacobian, axis=0)
-        observation = elementwise_observation[:, self.obs_map].reshape((-1, self.solver.mesh.GetNE()))
+        if self.refine_mode == 'p':
+            observation = elementwise_observation[:, self.obs_map].reshape((-1, self.solver.mesh.GetNE()))
+        else:
+            raise NotImplementedError("h-refinement requires mapping. Not yet implemented")
+        
         
         #endregion
         
         #region Dict
         
         #endregion
-        
         
         
     def render(self):
