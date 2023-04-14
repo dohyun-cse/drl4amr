@@ -160,7 +160,7 @@ class Solver:
                 f"Refinement mode should be either 'h' or 'p', but {self.refinement_mode} is provided.")
 
     def hRefine(self, marked):
-        # TODO: Keep an array that preserves initial element index such as idx[i] = original_index
+        # TODO: Keep an array that remembers initial element index such as idx[i] = original_index
         # IDEA: Initialize idx = 0...N and transfer this to refined mesh by using transfer operator
         
         self.fespace.Update()

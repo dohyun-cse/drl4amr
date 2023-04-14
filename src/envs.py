@@ -50,6 +50,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
                  refine_mode:str='p',
                  window_size:int=3,
                  observation_norm:str='L2',
+                 allow_coarsening:bool=False,
                  visualization:bool=False,
                  seed:Optional[int]=None,
                  solver_args:Dict=None):
@@ -140,9 +141,13 @@ class HyperbolicAMREnv(MultiAgentEnv):
         self.seed = seed
         self.visualization = visualization
         
-        self.action_space = Discrete(2)
+        self.allow_coarsening = allow_coarsening
+        self.obs_low = -20.0
+        self.obs_high = 20.0
+        
+        self.action_space = Discrete(2 + allow_coarsening)
         self.observation_space = Box(
-            low=-20.0, high=20.0,
+            low=self.obs_low, high=self.obs_high,
             shape=((self.solver.vdim**2*self.solver.sdim + 1)*(self.window_size*2 + 1)**self.solver.sdim),
                 dtype=np.float32)
         
@@ -166,16 +171,14 @@ class HyperbolicAMREnv(MultiAgentEnv):
             4) Truncated values for each ready agent.
             5) Info values for each agent id (may be empty dicts).
         """
-        marked = self.convert_to_marked(action_dict)
+        marked = self.actions_to_marks(action_dict)
         
         # Perform Actions
         self.solver.refine(marked)
         
         #region Advance in time        
-        errors = np.zeros((self.solver.mesh.GetNE(),),float)
+        errors = np.zeros((self.solver.mesh.GetNE(),), dtype=float)
         total_error = 0.0
-        for i in range(errors.Size()):
-            errors[i] = 0.0
         
         # update solver terminal time
         self.solver.terminal_time = min(self.regrid_time, self.terminal_time - self.solver.t)
@@ -319,6 +322,15 @@ class HyperbolicAMREnv(MultiAgentEnv):
             badChoice = np.logical_or(np.logical_and(hasSmallError, np.not_equal(actions, -1)))
         
         return badChoice*np.abs(errors - target)
+    
+    def actions_to_marks(self, action_dict:MultiAgentDict) -> np.ndarray:
+        marked = np.array(action_dict.values(), dtype=int) - 1
+        if self.allow_coarsening:
+            marked = marked - 1
+        return marked
+        
+            
+        
     
     @property
     def obs_map(self) -> np.ndarray:
