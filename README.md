@@ -22,7 +22,7 @@ If your system is fresh and has never installed PyMFEM before, please install th
 ```bash
 sudo apt install swig build-essential cmake chrpath mpich python-is-python3 python3-pip
 ```
-Please make sure that you have `swig@4.1.1` installed on your system.
+> **_NOTE:_**  Please make sure that you have `swig@4.1.1` installed on your system.
 
 To install dependent packages, run
 ```bash
@@ -48,7 +48,7 @@ At the top directory,
 ```bash
 python ./run_solvers.py -solver <solver_name>
 ```
-where `<solver_name>='advection', 'burgers', or 'euler'`.
+where `<solver_name> = 'advection', 'burgers', or 'euler'`.
 
 # Environment Test
 
