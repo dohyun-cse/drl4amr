@@ -1,24 +1,35 @@
-This package provides a machine learning framework for dynamic anticipatory mesh optimization (DynAMO).
+This package provides a machine-learning framework for dynamic anticipatory mesh optimization (DynAMO).
 
 Currently, it has been tested for `Python@3.10.6`, `ray@2.3.1`, and `PyMFEM@4.5.2` on Linux (Ubuntu@22.04 LTS)
 This package is based on general hyperbolic conservation laws implementation in PyMFEM.
 
+---
+
 # Algorithm Preamble
 
-## The Solver
+## Overview
 
+## Solver
+
+## Environment
+
+## Train
+
+---
 
 # Installation
-Before you install PyMFEM, please install:
+If your system is fresh and has never installed PyMFEM before, please install the followings:
 ```bash
-sudo apt install swig build-essential cmake chrpath mpich
+sudo apt install swig build-essential cmake chrpath mpich python-is-python3 python3-pip
 ```
-and
+Please make sure that you have `swig@4.1.1` installed on your system.
+
+To install dependent packages, run
 ```bash
-pip install swig numba mpi4py scipy numpy cmake
+python -m pip install -r requirements.txt
 ```
 
-For installation, please install PyMFEM at a branch `HCL-refactor-flux-Jacobian` by
+You also need PyMFEM at a branch `HCL-refactor-flux-Jacobian`:
 ```bash
 python -m pip install git+https://github.com/mfem/pymfem.git@HCL-refactor-flux-Jacobian
 ```
@@ -29,16 +40,13 @@ python -m pip install git+https://github.com/mfem/pymfem.git@HCL-refactor-flux-J
 Please note that only the solver part is implemented in parallel.
 Running `ray[rllib]` with `MPI` is future work. -->
 
-Also, install `ray[rllib]` and `tensorflow`
-```bash
-pip install 'ray[rllib]' tensorflow commentjson gitpython
-```
+---
 
 # Solver Test
 
 At the top directory,
 ```bash
-python ./run_solvers -solver <solver_name>
+python ./run_solvers.py -solver <solver_name>
 ```
 where `<solver_name>='advection', 'burgers', or 'euler'`.
 
