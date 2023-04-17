@@ -24,22 +24,15 @@ sudo apt install swig build-essential cmake chrpath mpich python-is-python3 pyth
 ```
 > **_NOTE:_**  Please make sure that you have `swig@4.1.1` installed on your system.
 
-To install dependent packages, run
+Create a virtual environment if you need. Then, the following will install the `hcl` package along with dependencies except `mfem`.
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
-You also need PyMFEM at a branch `HCL-refactor-flux-Jacobian`:
-> **_NOTE:_** You may need to restart your system before installing `PyMFEM`.
+Then, install `PyMFEM` using
 ```bash
 python -m pip install git+https://github.com/mfem/pymfem.git@HCL-refactor-flux-Jacobian
 ```
-<!-- You can also install a parallel version by
-```bash
-python -m pip install git+https://github.com/mfem/pymfem.git@HCL-refactor-flux-Jacobian --install-option="--with-parallel"
-```
-Please note that only the solver part is implemented in parallel.
-Running `ray[rllib]` with `MPI` is future work. -->
 
 ---
 
