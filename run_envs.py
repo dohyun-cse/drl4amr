@@ -1,5 +1,5 @@
 import mfem.ser as mfem
-import hcl.hcl_env as envs
+from hcl import Envs
 import numpy as np
 
 
@@ -30,11 +30,28 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
         print("Unknown ODE solver type: " + str(ode_solver_type))
         exit
 
-    advection = solver.AdvectionSolver(
-        mesh, order, 1, 'h', ode_solver, cfl, b=Velocity)
     InitCond.SetTime(0.0)
-    advection.init(InitCond)
-    advection.init_renderer()
+    advection = Envs.HyperbolicAMREnv(
+        solver_name='advection',
+        num_grids=[10, 10],
+        domain_size=[1.0, 1.0],
+        offsets=[0.0, 0.0],
+        regrid_time=0.2,
+        terminal_time=2.0,
+        refine_mode='p',
+        window_size=10,
+        observation_norm='L2',
+        allow_coarsening=False,
+        seed=None,
+        initial_condition=InitCond,
+        solver_args={
+            'mesh': mesh,
+            'order': order,
+            'num_equations': 1,
+            'refinement_mode': 'p',
+            'ode_solver': ode_solver, 
+            'cfl': cfl,
+            'b': Velocity})
     n_regrid = 0
     while advection.t < terminal_time:
         n_regrid += 1
