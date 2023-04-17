@@ -8,7 +8,7 @@ import os
 def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
     @mfem.jit.vector(td=True, vdim=1, interface="c++", sdim=2)
     def InitCond(x, t, out):
-        out[0] = np.sin(np.pi*(x[0] + t))*np.sin(np.pi*(x[1] + t))
+        out[0] = np.sin(np.pi*(x[0] - t))*np.sin(np.pi*(x[1] - t))
 
     @mfem.jit.vector(vdim=2, interface="c++", sdim=2)
     def Velocity(x, out):
