@@ -33,6 +33,8 @@ Then, install `PyMFEM` using
 ```bash
 python -m pip install git+https://github.com/mfem/pymfem.git@HCL-refactor-flux-Jacobian
 ```
+> **_NOTE:_** On a fresh Ubuntu@22.04, we need to restart the system before installing `mfem`.
+
 
 ---
 
