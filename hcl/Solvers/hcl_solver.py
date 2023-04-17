@@ -3,7 +3,6 @@ import sys
     # MFEM_USE_MPI = False
 import mfem.ser as mfem
 from mfem.ser import \
-    getAdvectionEquation, getBurgersEquation, getShallowWaterEquation, getEulerSystem, \
     RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws, HyperbolicFormIntegrator, \
         AdvectionFormIntegrator, BurgersFormIntegrator, ShallowWaterFormIntegrator, EulerFormIntegrator
 # else:
@@ -98,14 +97,19 @@ class Solver:
             bool: Whether the solver reaches to terminal time or not.
             float: time step size
         """
+        done = False
+        
         dt = self.compute_timestep()
-        real_dt = min(dt, self.terminal_time - self.t)
-        if real_dt <= 0:
-            return (True, real_dt)
+        time_remaining = self.terminal_time - self.t
+        if (time_remaining - dt) / dt < 1e-04:
+            done = True
+            dt = time_remaining
+        if dt <= 0:
+            return (True, dt)
         # single step
-        self.ode_solver.Step(self._sol, self.t, real_dt)
-        self.t += real_dt
-        return ((self.terminal_time - self.t) < dt*1.e-04, real_dt)
+        self.ode_solver.Step(self._sol, self.t, dt)
+        self.t += dt
+        return (done, self.t)
         
     def compute_timestep(self):
         dt = self.CFL * self.min_h / self._HCL.getMaxCharSpeed() / (2*self.max_order + 1)

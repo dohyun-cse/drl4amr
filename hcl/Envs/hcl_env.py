@@ -30,14 +30,8 @@ from ray.rllib.utils.typing import (
     MultiEnvDict,
 )
 
-import hcl_solver as solver
-# if 'mfem.ser' in sys.modules:
-    # MFEM_USE_MPI = False
 import mfem.ser as mfem
-# else:
-#     MFEM_USE_MPI = True
-#     from mpi4py import MPI
-#     import mfem.par as mfem
+from ..Solvers import hcl_solver as solver
 
 class HyperbolicAMREnv(MultiAgentEnv):
     def __init__(self, 
@@ -52,6 +46,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
                  observation_norm:str='L2',
                  allow_coarsening:bool=False,
                  visualization:bool=False,
+                 initial_condition:mfem.VectorFunctionCoefficient=None,
                  seed:Optional[int]=None,
                  solver_args:Dict=None):
         """Hyperbolic DynAMO Environment. Create a solver, refine based on given actions, and make observations
@@ -129,6 +124,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
             self.solver = solver.EulerSolver(mesh=self.mesh, **solver_args)
         else:
             raise ValueError(f'Unsupported solver name: {solver_name}.')
+        self.solver.init(initial_condition)
         #endregion
         
         self.observation_norm = observation_norm

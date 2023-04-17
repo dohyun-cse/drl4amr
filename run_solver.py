@@ -1,9 +1,8 @@
 import mfem.ser as mfem
 from mfem.ser import ProlongToMaxOrder
-import hcl_solver
+from hcl import Solvers
 import numpy as np
 import os
-
 
 def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
     @mfem.jit.vector(td=True, vdim=1, interface="c++", sdim=2)
@@ -32,7 +31,7 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
         print("Unknown ODE solver type: " + str(ode_solver_type))
         exit
 
-    advection = hcl_solver.AdvectionSolver(
+    advection = Solvers.AdvectionSolver(
         mesh, order, 1, 'h', ode_solver, cfl, b=Velocity)
     InitCond.SetTime(0.0)
     advection.init(InitCond)
@@ -43,7 +42,7 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
     while advection.t < terminal_time:
         n_regrid += 1
         advection.terminal_time = min(regrid_time*n_regrid, terminal_time)
-        print(f'(t_start, t_end) = ({advection.t}, {advection.terminal_time})')
+        print(f'(t_start, t_end) = ({advection.t:.4f}, {advection.terminal_time:.4f})')
         done = False
         while not done:
             done, dt = advection.step()
@@ -86,7 +85,7 @@ def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_tim
         print("Unknown ODE solver type: " + str(ode_solver_type))
         exit
 
-    burgers = hcl_solver.BurgersSolver(
+    burgers = Solvers.BurgersSolver(
         mesh, order, 1, 'h', ode_solver, cfl)
     InitCond.SetTime(0.0)
     burgers.init(InitCond)
@@ -175,7 +174,7 @@ def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=
         print("Unknown ODE solver type: " + str(ode_solver_type))
         exit
 
-    euler = hcl_solver.EulerSolver(
+    euler = Solvers.EulerSolver(
         mesh, order, 4, 'h', ode_solver, cfl, specific_heat_ratio=1.4, gas_constant=1.0)
     euler.init(InitCond)
     euler.init_renderer()
