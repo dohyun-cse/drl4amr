@@ -5,6 +5,7 @@ import mfem.ser as mfem
 from mfem.ser import \
     RusanovFlux, RiemannSolver, DGHyperbolicConservationLaws, HyperbolicFormIntegrator, \
         AdvectionFormIntegrator, BurgersFormIntegrator, ShallowWaterFormIntegrator, EulerFormIntegrator
+from typing import Optional, Tuple
 # else:
 #     MFEM_USE_MPI = True
 #     from mpi4py import MPI
@@ -127,18 +128,18 @@ class Solver:
     def render(self):
         raise NotImplementedError("render should be implemented in the subclass")
     
-    def save(self, postfix:int):
+    def save(self, postfix:int, prefix:str='./'):
         """Save mesh and solution with <solver_name>-<postfix:06>.mesh/gf.
         Perform ProlongToMaxOrder if variable order.
 
         Args:
             postfix (int): postfix for filename. Should be less than or equal to 6 digits
         """
-        self.mesh.Print(f'{self.solver_name}-{postfix:06}.mesh')
+        self.mesh.Print(f'{prefix}{self.solver_name}-{postfix:06}.mesh')
         if self.fespace.IsVariableOrder():
-            mfem.ProlongToMaxOrder(self.sol).Save(f'{self.solver_name}-{postfix:06}.gf')
+            mfem.ProlongToMaxOrder(self.sol).Save(f'{prefix}{self.solver_name}-{postfix:06}.gf')
         else:
-            self.sol.Save(f'{self.solver_name}-{postfix:06}.gf')
+            self.sol.Save(f'{prefix}{self.solver_name}-{postfix:06}.gf')
 
     def refine(self, marked: mfem.intArray, coarsening: bool = False):
         """Perform general h/p mesh refinement

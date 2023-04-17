@@ -38,7 +38,7 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
     advection.init_renderer()
     n_regrid = 0
     
-    advection.save(n_regrid)
+    advection.save(n_regrid, './results/')
     while advection.t < terminal_time:
         n_regrid += 1
         advection.terminal_time = min(regrid_time*n_regrid, terminal_time)
@@ -47,7 +47,7 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
         while not done:
             done, dt = advection.step()
         error, errors = advection.estimate()
-        advection.save(n_regrid)
+        advection.save(n_regrid, './results/')
         advection.render()
         print(f'{error=}')
         
