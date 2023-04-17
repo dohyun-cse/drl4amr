@@ -1,7 +1,8 @@
 import mfem.ser as mfem
 from mfem.ser import ProlongToMaxOrder
-import hcl.hcl_solver as solver
+import hcl_solver
 import numpy as np
+import os
 
 
 def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
@@ -31,7 +32,7 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
         print("Unknown ODE solver type: " + str(ode_solver_type))
         exit
 
-    advection = solver.AdvectionSolver(
+    advection = hcl_solver.AdvectionSolver(
         mesh, order, 1, 'h', ode_solver, cfl, b=Velocity)
     InitCond.SetTime(0.0)
     advection.init(InitCond)
@@ -41,12 +42,12 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
     advection.save(n_regrid)
     while advection.t < terminal_time:
         n_regrid += 1
-        print(advection.t)
-        advection.terminal_time = min(advection.t + regrid_time, terminal_time)
+        advection.terminal_time = min(regrid_time*n_regrid, terminal_time)
+        print(f'(t_start, t_end) = ({advection.t}, {advection.terminal_time})')
         done = False
         while not done:
             done, dt = advection.step()
-        error, errors = advection.compute_L2_errors(InitCond)
+        error, errors = advection.estimate()
         advection.save(n_regrid)
         advection.render()
         print(f'{error=}')
@@ -85,7 +86,7 @@ def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_tim
         print("Unknown ODE solver type: " + str(ode_solver_type))
         exit
 
-    burgers = solver.BurgersSolver(
+    burgers = hcl_solver.BurgersSolver(
         mesh, order, 1, 'h', ode_solver, cfl)
     InitCond.SetTime(0.0)
     burgers.init(InitCond)
@@ -97,12 +98,12 @@ def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_tim
     burgers.save(n_regrid)
     while burgers.t < terminal_time:
         n_regrid += 1
-        print(burgers.t)
-        burgers.terminal_time = min(burgers.t + regrid_time, terminal_time)
+        burgers.terminal_time = min(regrid_time*n_regrid, terminal_time)
+        print(f'(t_start, t_end) = ({burgers.t}, {burgers.terminal_time})')
         done = False
         while not done:
             done, dt = burgers.step()
-        error, errors = burgers.compute_L2_errors(InitCond)
+        error, errors = burgers.estimate()
         burgers.save(n_regrid)
         burgers.render()
         print(f'{error=}')
@@ -174,7 +175,7 @@ def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=
         print("Unknown ODE solver type: " + str(ode_solver_type))
         exit
 
-    euler = solver.EulerSolver(
+    euler = hcl_solver.EulerSolver(
         mesh, order, 4, 'h', ode_solver, cfl, specific_heat_ratio=1.4, gas_constant=1.0)
     euler.init(InitCond)
     euler.init_renderer()
@@ -185,14 +186,14 @@ def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=
     euler.sol.Save(f"euler-{n_regrid:06}.gf", 8)
     while euler.t < terminal_time:
         n_regrid += 1
-        print(euler.t)
-        euler.terminal_time = min(euler.t + regrid_time, terminal_time)
+        euler.terminal_time = min(regrid_time*n_regrid, terminal_time)
+        print(f'(t_start, t_end) = ({euler.t}, {euler.terminal_time})')
         done = False
         while not done:
             done, dt = euler.step()
         euler.mesh.Print(f"euler-{n_regrid:06}.mesh", 8)
         euler.sol.Save(f"euler-{n_regrid:06}.gf", 8)
-        error, errors = euler.compute_L2_errors(InitCond)
+        error, errors = euler.estimate()
         print(f'{error=}')
         
         euler.render()
@@ -207,7 +208,7 @@ if __name__ == "__main__":
                         action='store', type=str,
                         help="Solver name")
     parser.add_argument('-m', '--mesh',
-                        default="./mesh/periodic-square-4x4.mesh",
+                        default=os.path.dirname(os.path.realpath(__file__)) + "/mesh/periodic-square-4x4.mesh",
                         action='store', type=str,
                         help='Mesh file to use.')
     parser.add_argument('-r', '--refine',

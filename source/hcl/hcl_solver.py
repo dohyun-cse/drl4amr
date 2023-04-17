@@ -118,7 +118,7 @@ class Solver:
         exact.SetTime(self.t)
         errors = mfem.GridFunction(self.constant_space)
         self.sol.ComputeElementL2Errors(exact, errors)
-        return (np.sqrt(np.dot(errors, errors)), errors)
+        return (errors.Norml2(), errors)
 
     def render(self):
         raise NotImplementedError("render should be implemented in the subclass")
@@ -280,7 +280,7 @@ class Solver:
         if self.has_estimator:
             errors = mfem.Vector(self.mesh.GetNE())
             self.estimator.GetLocalErrors(self.sol, errors)
-            total_error = np.sqrt(errors*errors)
+            total_error = errors.Norml2()
         else:
             total_error, errors = self.compute_L2_errors(self.initial_condition)
         return (total_error, errors)

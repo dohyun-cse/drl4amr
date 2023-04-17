@@ -30,6 +30,7 @@ python -m pip install -r requirements.txt
 ```
 
 You also need PyMFEM at a branch `HCL-refactor-flux-Jacobian`:
+> **_NOTE:_** You may need to restart your system before installing `PyMFEM`.
 ```bash
 python -m pip install git+https://github.com/mfem/pymfem.git@HCL-refactor-flux-Jacobian
 ```
