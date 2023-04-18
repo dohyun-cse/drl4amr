@@ -205,21 +205,45 @@ class HyperbolicAMREnv(MultiAgentEnv):
             # compute current error
             total_error, errors = self.solver.estimate()
             errors = errors.GetDataArray()
+        elif self.observation_norm == 'L2':
+            # time average
+            errors /= real_regrid_time
+            total_error /= real_regrid_time
+        
         #endregion
         
         #region Logscale Error
         # take logarithm
-        total_error = np.log(total_error)
-        errors = np.log(errors)
+        log_total_error = np.log(total_error)
+        log_errors = np.log(errors)
         
         if self.observation_norm == 'L2':
-            # If L2 error, then it must be squared!
-            # divide it by 2 because we took log
-            # Also divide it by dt for reweighting
-            errors = errors/2 - np.log(self.regrid_time)/2
-            total_error = total_error/2 - np.log(self.regrid_time)/2
-            
-        errors -= total_error
+            # log(sqrt(err/dt)) = 0.5(log(err/dt)) = 0.5(log(err)-log(dt))
+            log_errors = 0.5*(log_errors - np.log(real_regrid_time))
+        (avg_log_err, log_err_margin) = self.compute_threshold(log_errors)
+        log_errors -= avg_log_err
+        
+        #endregion
+        
+        #region Reward Dict
+        if self.refine_mode == 'p':
+            if self.allow_coarsening: # three action, C, 0, F
+                hasLargeError = log_errors > log_err_margin
+                hasSmallError = log_errors < -log_err_margin
+                bad = np.logical_or(
+                    np.logical_and(hasLargeError, marked != 1),
+                    np.logical_and(hasSmallError, marked != -1))
+                reward_dict = {id: bad[id]*np.abs(log_errors[id]) for id in range(self.mesh.GetNE())}
+                
+            else: # two action, 0, F
+                hasLargeError = log_errors > log_err_margin
+                bad = np.logical_or(
+                    np.logical_and(hasLargeError, marked != 1),
+                    np.logical_and(hasSmallError, marked != 0))
+                reward_dict = {id: bad[id]*np.abs(log_errors[id]) for id in range(self.mesh.GetNE())}
+                
+        elif self.refine_mode == 'h':
+            raise NotImplementedError('Cannot create dictionary for h-refinement.')
         #endregion
         
         #region FluxJacobian
