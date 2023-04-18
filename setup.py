@@ -16,6 +16,7 @@ setup(name='hcl',
         "Intended Audience :: Developers",
         "Programming Language :: Python :: 3.10"
       ],
+      py_modules=['hcl'],
       python_requires=">=3.7, <4",
       project_urls={
          "Source": "https://github.com/dohyun-cse/drl4amr/"
