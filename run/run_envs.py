@@ -45,11 +45,10 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
         seed=None,
         initial_condition=InitCond,
         solver_args={
-            'mesh': mesh,
             'order': order,
             'num_equations': 1,
             'refinement_mode': 'p',
-            'ode_solver': ode_solver, 
+            'ode_solver_type': ode_solver_type, 
             'cfl': cfl,
             'b': Velocity})
     n_regrid = 0

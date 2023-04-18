@@ -1,1 +1,1 @@
-from .hcl_solver import Solver, AdvectionSolver, BurgersSolver, EulerSolver
+from .hcl_solver import Solver, AdvectionSolver, BurgersSolver, EulerSolver, get_ode_solver

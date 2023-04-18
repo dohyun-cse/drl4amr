@@ -17,8 +17,36 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+def get_ode_solver(ode_solver_type:int):
+    """Get ODESolver.
+    - 1: Forward Euler
+    - 2: RK2
+    - 3: SSP-RK3
+    - 4: RK4
+    - 5: RK6
+
+    Args:
+        ode_solver_type (int): ODE solver type.
+
+    Raises:
+        ValueError: If ODE solver type is unknown
+    """
+    
+    if ode_solver_type == 1:
+        return mfem.ForwardEulerSolver()
+    elif ode_solver_type == 2:
+        return mfem.RK2Solver(1.0)
+    elif ode_solver_type == 3:
+        return mfem.RK3SSPSolver()
+    elif ode_solver_type == 4:
+        return mfem.RK4Solver()
+    elif ode_solver_type == 6:
+        return mfem.RK6Solver()
+    else:
+        raise ValueError(f'Unknown ODE solver type: {ode_solver_type}.')
+
 class Solver:
-    def __init__(self, mesh: mfem.Mesh, order: int, num_equations: int, refinement_mode: str, ode_solver: mfem.ODESolver, cfl, **kwargs):
+    def __init__(self, mesh: mfem.Mesh, order: int, num_equations: int, refinement_mode: str, ode_solver_type: int, cfl, **kwargs):
         self.visualization = False # Set True when init_render is called
         self.order = order
         self.max_order = order
@@ -29,6 +57,7 @@ class Solver:
         self.fec = mfem.DG_FECollection(order, self.sdim)
         self.fecP0 = mfem.DG_FECollection(0, self.sdim)
         self._isParallel = False
+        self.ode_solver = get_ode_solver(ode_solver_type)
         # if MFEM_USE_MPI:
         #     if isinstance(mesh, mfem.ParMesh):
         #         if not mesh.Nonconforming():
@@ -54,7 +83,6 @@ class Solver:
         
         self._sol = mfem.GridFunction(self.fespace)
         self.rsolver = RusanovFlux()
-        self.ode_solver = ode_solver
         self.solver_args = kwargs
         self.getSystem(IntOrderOffset=3, **self.solver_args)
         self.ode_solver.Init(self.HCL)
@@ -119,7 +147,7 @@ class Solver:
         #     dt = reduced_dt
         return dt
     
-    def compute_L2_errors(self, exact:mfem.VectorFunctionCoefficient):
+    def compute_L2_errors(self, exact:mfem.VectorFunctionCoefficient) -> Tuple[float, mfem.GridFunction]:
         exact.SetTime(self.t)
         errors = mfem.GridFunction(self.constant_space)
         self.sol.ComputeElementL2Errors(exact, errors)

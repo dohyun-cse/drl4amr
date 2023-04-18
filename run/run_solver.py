@@ -13,26 +13,13 @@ def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_t
     def Velocity(x, out):
         out[0] = 1.0
         out[1] = 1.0
-
+    
     mesh = mfem.Mesh(meshfile)
     mesh.UniformRefinement()
     mesh.UniformRefinement()
-    if ode_solver_type == 1:
-        ode_solver = mfem.ForwardEulerSolver()
-    elif ode_solver_type == 2:
-        ode_solver = mfem.RK2Solver(1.0)
-    elif ode_solver_type == 3:
-        ode_solver = mfem.RK3SSolver()
-    elif ode_solver_type == 4:
-        ode_solver = mfem.RK4Solver()
-    elif ode_solver_type == 6:
-        ode_solver = mfem.RK6Solver()
-    else:
-        print("Unknown ODE solver type: " + str(ode_solver_type))
-        exit
 
     advection = Solvers.AdvectionSolver(
-        mesh, order, 1, 'h', ode_solver, cfl, b=Velocity)
+        mesh, order, 1, 'h', ode_solver_type, cfl, b=Velocity)
     InitCond.SetTime(0.0)
     advection.init(InitCond)
     advection.init_renderer()
@@ -71,22 +58,9 @@ def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_tim
     mesh = mfem.Mesh(meshfile)
     mesh.UniformRefinement()
     mesh.UniformRefinement()
-    if ode_solver_type == 1:
-        ode_solver = mfem.ForwardEulerSolver()
-    elif ode_solver_type == 2:
-        ode_solver = mfem.RK2Solver(1.0)
-    elif ode_solver_type == 3:
-        ode_solver = mfem.RK3SSolver()
-    elif ode_solver_type == 4:
-        ode_solver = mfem.RK4Solver()
-    elif ode_solver_type == 6:
-        ode_solver = mfem.RK6Solver()
-    else:
-        print("Unknown ODE solver type: " + str(ode_solver_type))
-        exit
 
     burgers = Solvers.BurgersSolver(
-        mesh, order, 1, 'h', ode_solver, cfl)
+        mesh, order, 1, 'h', ode_solver_type, cfl)
     InitCond.SetTime(0.0)
     burgers.init(InitCond)
     burgers.init_renderer()
@@ -160,22 +134,9 @@ def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=
     mesh = mfem.Mesh(meshfile)
     mesh.UniformRefinement()
     mesh.UniformRefinement()
-    if ode_solver_type == 1:
-        ode_solver = mfem.ForwardEulerSolver()
-    elif ode_solver_type == 2:
-        ode_solver = mfem.RK2Solver(1.0)
-    elif ode_solver_type == 3:
-        ode_solver = mfem.RK3SSPSolver()
-    elif ode_solver_type == 4:
-        ode_solver = mfem.RK4Solver()
-    elif ode_solver_type == 6:
-        ode_solver = mfem.RK6Solver()
-    else:
-        print("Unknown ODE solver type: " + str(ode_solver_type))
-        exit
 
     euler = Solvers.EulerSolver(
-        mesh, order, 4, 'h', ode_solver, cfl, specific_heat_ratio=1.4, gas_constant=1.0)
+        mesh, order, 4, 'h', ode_solver_type, cfl, specific_heat_ratio=1.4, gas_constant=1.0)
     euler.init(InitCond)
     euler.init_renderer()
 
@@ -207,7 +168,7 @@ if __name__ == "__main__":
                         action='store', type=str,
                         help="Solver name")
     parser.add_argument('-m', '--mesh',
-                        default=os.path.dirname(os.path.realpath(__file__)) + "/mesh/periodic-square-4x4.mesh",
+                        default=os.path.dirname(os.path.realpath(__file__)) + "/../mesh/periodic-square-4x4.mesh",
                         action='store', type=str,
                         help='Mesh file to use.')
     parser.add_argument('-r', '--refine',
