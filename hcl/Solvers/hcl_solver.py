@@ -119,7 +119,7 @@ class Solver:
         raise NotImplementedError(
             "getSystem should be implemented in the subclass")
 
-    def step(self) -> tuple[bool, float]:
+    def step(self) -> Tuple[bool, float]:
         """Advance FE solution one time step where dt is from CFL condition.
 
         Returns:
@@ -252,7 +252,7 @@ class Solver:
         self.HCL.Update()
         self.fespace.UpdatesFinished()
 
-    def ComputeElementAverageFluxJacobian(self) -> tuple[mfem.DenseTensor, mfem.DenseMatrix]:
+    def ComputeElementAverageFluxJacobian(self) -> Tuple[mfem.DenseTensor, mfem.DenseMatrix]:
         """Compute element average state ū and compute ∂F(ū)/∂u
 
         Returns:
@@ -309,7 +309,7 @@ class Solver:
         self.has_estimator = True
         self.estimator = estimator
     
-    def estimate(self) -> tuple[float, mfem.Vector]:
+    def estimate(self) -> Tuple[float, mfem.Vector]:
         if self.has_estimator:
             errors = mfem.Vector(self.mesh.GetNE())
             self.estimator.GetLocalErrors(self.sol, errors)

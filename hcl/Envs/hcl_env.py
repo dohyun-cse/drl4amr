@@ -292,7 +292,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
                         self.obs_map[i,:] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset, -self.window_size + z_offset), axis=(0,1,2))
                         i += 1
     
-    def compute_threshold(self, errors:mfem.Vector) -> tuple[float, float]:
+    def compute_threshold(self, errors:mfem.Vector) -> Tuple[float, float]:
         """Compute Threshold (E, δ) where E = mean(errors) and δ = Z*s
         where Z = 1.645 / sqrt(n) from 90% confidence interval
         and s is the standard deviation.
@@ -302,7 +302,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
             errors (mfem.Vector): element-wise error
 
         Returns:
-            tuple[float, float]: Target error, E, and margin δ.
+            Tuple[float, float]: Target error, E, and margin δ.
         """
         target = errors.Sum() / errors.Size()
         
