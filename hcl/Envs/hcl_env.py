@@ -168,7 +168,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
             4) Truncated values for each ready agent.
             5) Info values for each agent id (may be empty dicts).
         """
-        marked = self.actions_to_marks(action_dict)
+        marked = self.actions_to_marked(action_dict)
         
         # Perform Actions
         self.solver.refine(marked)
@@ -358,7 +358,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
         
         return badChoice*np.abs(errors - target)
     
-    def actions_to_marks(self, action_dict:MultiAgentDict) -> np.ndarray:
+    def actions_to_marked(self, action_dict:MultiAgentDict) -> np.ndarray:
         marked = [0]*self.mesh.GetNE()
         for agent_id, value in action_dict.items():
             marked[agent_id] = value
