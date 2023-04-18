@@ -258,19 +258,17 @@ class HyperbolicAMREnv(MultiAgentEnv):
         
         # reweight Jacobian by J*Dt/h
         Jacobian = Jacobian * (self.regrid_time/self.grid_size.reshape((1, -1)))
-        Jacobian = Jacobian.reshape((-1, self.solver.mesh.GetNE()))
-        eigs = eigs.GetDataArray().reshape((self.solver.vdim*self.solver.sdim, self.solver.mesh.GetNE()))
+        eigs = eigs.GetDataArray().reshape((self.mesh.GetNE(), -1), order='C')
         #endregion
         
-        #region Construct Observation!
+        #region Observation Dict
         
         # make element-wise observation obs[:,i] = [error, Jacobians]
-        elementwise_observation = np.append(errors.reshape((1, self.solver.mesh.GetNE())), Jacobian, axis=0)
+        # elementwise_observation = np.append(errors.reshape(1, self.mesh.GetNE()), Jacobian, axis=0)
         if self.refine_mode == 'p':
-            observation = elementwise_observation[:, self.obs_map].reshape((-1, self.solver.mesh.GetNE()))
-        else:
-            raise NotImplementedError("h-refinement requires mapping. Not yet implemented")
-        
+            observation_dict = {id: np.append([errors[id]], Jacobian[:,:,id].flatten()) for id in range(self.mesh.GetNE())}
+        elif self.refine_mode == 'h':
+            raise NotImplementedError('Cannot create dictionary for h-refinement.')
         
         #endregion
         
