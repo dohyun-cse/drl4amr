@@ -144,11 +144,12 @@ class HyperbolicAMREnv(MultiAgentEnv):
         self.action_space = Discrete(2 + allow_coarsening)
         self.observation_space = Box(
             low=self.obs_low, high=self.obs_high,
-            shape=((self.solver.vdim**2*self.solver.sdim + 1)*(self.window_size*2 + 1)**self.solver.sdim),
-                dtype=np.float32)
+            shape=((self.solver.vdim**2*self.solver.sdim + 1)*(self.window_size*2 + 1)**self.solver.sdim,),
+            dtype=float)
         
     def reset(self, *, seed: Optional[int]=None, options: Optional[dict] = None):
         self.solver.reset()
+        self.done = False
     
     def step(self, action_dict:MultiAgentDict) -> Tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
