@@ -5,14 +5,15 @@ import numpy as np
 import os
 
 def run_advection(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
-    @mfem.jit.vector(td=True, vdim=1, interface="c++", sdim=2)
-    def InitCond(x, t, out):
-        out[0] = np.sin(np.pi*(x[0] - t))*np.sin(np.pi*(x[1] - t))
-
-    @mfem.jit.vector(vdim=2, interface="c++", sdim=2)
+    vx, vy = 1., -1.
+    @mfem.jit.vector(vdim=2, interface="c++", sdim=2, params={'vx':vx, 'vy':vy})
     def Velocity(x, out):
-        out[0] = 1.0
-        out[1] = 1.0
+        out[0] = vx
+        out[1] = vy
+        
+    @mfem.jit.vector(td=True, vdim=1, interface="c++", sdim=2, params={'vx':vx, 'vy':vy})
+    def InitCond(x, t, out):
+        out[0] = np.sin(np.pi*(x[0] - vx*t))*np.sin(np.pi*(x[1] - vy*t))
     
     mesh = mfem.Mesh(meshfile)
     mesh.UniformRefinement()
@@ -85,8 +86,11 @@ def run_burgers(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_tim
     print(burgers.t)
     
 def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=None):
-    @mfem.jit.vector(vdim=4, interface="c++")
-    def InitCond(x, out):
+    @mfem.jit.vector(vdim=4, td=True, interface="c++")
+    def InitCond(x, t, out):
+        xt = x
+        xt[0] -= t*0.5
+        
         # "Fast vortex"
         radius = 0.2
         Minf = 0.5
@@ -106,15 +110,15 @@ def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=
         temp_inf = pres_inf / (den_inf * gas_constant)
 
         r2rad = 0.0
-        r2rad += (x[0] - xc) * (x[0] - xc)
-        r2rad += (x[1] - yc) * (x[1] - yc)
+        r2rad += (xt[0] - xc) * (xt[0] - xc)
+        r2rad += (xt[1] - yc) * (xt[1] - yc)
         r2rad /= (radius * radius)
 
         shrinv1 = 1.0 / (specific_heat_ratio - 1.)
 
         velX = vel_inf * \
-            (1 - beta * (x[1] - yc) / radius * np.exp(-0.5 * r2rad))
-        velY = vel_inf * beta * (x[0] - xc) / radius * np.exp(-0.5 * r2rad)
+            (1 - beta * (xt[1] - yc) / radius * np.exp(-0.5 * r2rad))
+        velY = vel_inf * beta * (xt[0] - xc) / radius * np.exp(-0.5 * r2rad)
         vel2 = velX * velX + velY * velY
 
         specific_heat = gas_constant * specific_heat_ratio * shrinv1
