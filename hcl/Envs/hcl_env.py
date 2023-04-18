@@ -94,21 +94,21 @@ class HyperbolicAMREnv(MultiAgentEnv):
         if not all(np.equal(offsets, 0)):
             if len(offsets) == 1:
                 @mfem.jit.vector(vdim=1, interface="c++", sdim=1, dependency=(offsets))
-                def Velocity(x, out):
+                def transformer(x, out):
                     out[0] = x[0] - offsets[0]
             elif len(offsets) == 2:
                 @mfem.jit.vector(vdim=2, interface="c++", sdim=2, dependency=(offsets))
-                def Velocity(x, out):
+                def transformer(x, out):
                     out[0] = x[0] - offsets[0]
                     out[1] = x[1] - offsets[1]
             elif len(offsets) == 3:
                 @mfem.jit.vector(vdim=3, interface="c++", sdim=3, dependency=(offsets))
-                def Velocity(x, out):
+                def transformer(x, out):
                     out[0] = x[0] - offsets[0]
                     out[1] = x[1] - offsets[1]
                     out[2] = x[2] - offsets[2]
-            self.mesh.Transform(Velocity)
-            
+            self.mesh.Transform(transformer)
+
         # Make it non-conforming mesh
         self.mesh.EnsureNCMesh()
         
