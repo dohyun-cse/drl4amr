@@ -109,9 +109,6 @@ class HyperbolicAMREnv(MultiAgentEnv):
         # Make it non-conforming mesh
         self.mesh.EnsureNCMesh()
         
-        # build mapping between elements
-        self.obs_map = self.build_obs_map()
-        
         #endregion
         
         
@@ -136,6 +133,9 @@ class HyperbolicAMREnv(MultiAgentEnv):
         self.window_size = window_size
         self.seed = seed
         self.visualization = visualization
+        
+        # build mapping between elements
+        self.obs_map = self.build_obs_map()
         
         self.allow_coarsening = allow_coarsening
         self.obs_low = -20.0
@@ -256,24 +256,25 @@ class HyperbolicAMREnv(MultiAgentEnv):
         """obs[:,i] = element indices within the window size. Only uniform periodic rectangular mesh is supported.
         """
         sdim = self.solver.sdim
-        obs_map = np.zeros(((self.window_size*2 + 1)**self.solver.sdim, self.solver.mesh()), dtype=int)
+        obs_map = np.zeros(((self.window_size*2 + 1)**self.solver.sdim, self.solver.mesh.GetNE()), dtype=int)
+        
         idx = np.arange(np.prod(self.num_grids)).reshape(self.num_grids)
         if sdim == 1:
             for x_offset in range(self.window_size*2 + 1):
-                obs_map[x_offset, :] = np.roll(idx, (-self.window_size + x_offset))
+                obs_map[x_offset,:] = np.roll(idx, (-self.window_size + x_offset))
         elif sdim == 2:
             i = 0
             for y_offset in range(self.window_size*2 + 1):
                 for x_offset in range(self.window_size*2 + 1):
+                    obs_map[i,:] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset), axis=(0,1)).flatten()
                     i += 1
-                    obs_map[i] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset), axis=(0,1))
         elif sdim == 3:
             i = 0
             for z_offset in range(self.window_size*2 + 1):
                 for y_offset in range(self.window_size*2 + 1):
                     for x_offset in range(self.window_size*2 + 1):
+                        obs_map[i,:] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset, -self.window_size + z_offset), axis=(0,1,2))
                         i += 1
-                        obs_map[i] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset, -self.window_size + z_offset), axis=(0,1,2))
     
     def compute_threshold(self, errors:mfem.Vector) -> tuple[float, float]:
         """Compute Threshold (E, δ) where E = mean(errors) and δ = Z*s
