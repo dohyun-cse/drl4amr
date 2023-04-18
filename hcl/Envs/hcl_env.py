@@ -359,7 +359,10 @@ class HyperbolicAMREnv(MultiAgentEnv):
         return badChoice*np.abs(errors - target)
     
     def actions_to_marks(self, action_dict:MultiAgentDict) -> np.ndarray:
-        marked = np.array(action_dict.values(), dtype=int) - 1
+        marked = [0]*self.mesh.GetNE()
+        for agent_id, value in action_dict.items():
+            marked[agent_id] = value
+        marked = np.array(marked)
         if self.allow_coarsening:
             marked = marked - 1
         return marked
