@@ -177,7 +177,12 @@ class HyperbolicAMREnv(MultiAgentEnv):
         total_error = 0.0
         
         # update solver terminal time
-        self.solver.terminal_time = min(self.regrid_time, self.terminal_time - self.solver.t)
+        real_regrid_time = min(self.regrid_time, self.terminal_time - self.solver.t)
+        self.solver.terminal_time = self.t + real_regrid_time
+        if (self.solver.terminal_time - self.terminal_time) < self.regrid_time*1e-03:
+            self.done = True
+        
+        
         done = False
         while not done:
             done, dt = self.solver.step() # advance time
@@ -197,7 +202,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
         
         if self.observation_norm == 'at_regrid_time': # only measure at the regrid time
             # compute current error
-            total_error, errors = self.solver.compute_L2_errors()
+            total_error, errors = self.solver.estimate()
             errors = errors.GetDataArray()
         #endregion
         
