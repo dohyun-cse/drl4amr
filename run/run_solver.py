@@ -90,6 +90,7 @@ def run_euler(meshfile, order, ode_solver_type, cfl, terminal_time, regrid_time=
     def InitCond(x, t, out):
         xt = x
         xt[0] -= t*0.5
+        xt[0] = xt[0] % 1.0
         
         # "Fast vortex"
         radius = 0.2
