@@ -273,8 +273,18 @@ class HyperbolicAMREnv(MultiAgentEnv):
         #endregion
         
         #region Dict
+        if self.refine_mode == 'p':
+            done_dict = {id: self.done for id in range(self.mesh.GetNE())}
+            done_dict['__all__'] = self.done
+            info_dict = {id: {} for id in range(self.mesh.GetNE())}
+            truncated_dict = {id: self.done for id in range(self.mesh.GetNE())}
+            truncated_dict['__all__'] = False
+        elif self.refine_mode == 'h':
+            raise NotImplementedError('Cannot create dictionary for h-refinement.')
         
         #endregion
+        
+        return observation_dict, reward_dict, done_dict, truncated_dict, info_dict
         
         
     def render(self):
