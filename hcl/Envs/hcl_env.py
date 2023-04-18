@@ -388,8 +388,6 @@ class HyperbolicAMREnv(MultiAgentEnv):
         err = [0]*self.mesh.GetNE()
         for id, val in obs_dict.items():
             err[id] = val[0]
-        
-        
     
     @property
     def obs_map(self) -> np.ndarray:
