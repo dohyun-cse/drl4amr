@@ -33,6 +33,9 @@ from ray.rllib.utils.typing import (
 import mfem.ser as mfem
 from ..Solvers import hcl_solver as solver
 
+def create_HypAMREnv(config):
+    return HyperbolicAMREnv(config)
+
 class HyperbolicAMREnv(MultiAgentEnv):
     def __init__(self, 
                  solver_name:str,
@@ -147,9 +150,14 @@ class HyperbolicAMREnv(MultiAgentEnv):
             shape=((self.solver.vdim**2*self.solver.sdim + 1)*(self.window_size*2 + 1)**self.solver.sdim,),
             dtype=float)
         
-    def reset(self, *, seed: Optional[int]=None, options: Optional[dict] = None):
+    def reset(self, *, seed: Optional[int]=None, options: Optional[dict] = None) -> MultiAgentDict:
         self.solver.reset()
         self.done = False
+        total_error, errors = self.solver.estimate()
+        log_errors = np.log(errors.GetDataArray())
+        Jacobian, _ = self.solver.ComputeElementAverageFluxJacobian()
+        
+        return self.compute_observation(log_errors, Jacobian)
     
     def step(self, action_dict:MultiAgentDict) -> Tuple[
         MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict, MultiAgentDict
@@ -174,7 +182,7 @@ class HyperbolicAMREnv(MultiAgentEnv):
         self.solver.refine(marked)
         
         #region Advance in time        
-        errors = np.zeros((self.solver.mesh.GetNE(),), dtype=float)
+        errors = np.zeros((self.mesh.GetNE(),), dtype=float)
         total_error = 0.0
         
         # update solver terminal time
@@ -218,69 +226,39 @@ class HyperbolicAMREnv(MultiAgentEnv):
         log_errors = np.log(errors)
         
         if self.observation_norm == 'L2':
-            # log(sqrt(err/dt)) = 0.5(log(err/dt)) = 0.5(log(err)-log(dt))
+            # err <- log(sqrt(err/dt)) = 0.5*(log(err) - log(dt))
+            log_total_error = 0.5*(log_total_error - np.log(real_regrid_time))
             log_errors = 0.5*(log_errors - np.log(real_regrid_time))
+            
         (avg_log_err, log_err_margin) = self.compute_threshold(log_errors)
         log_errors -= avg_log_err
         
-        #endregion
-        
-        #region Reward Dict
-        if self.refine_mode == 'p':
-            if self.allow_coarsening: # three action, C, 0, F
-                hasLargeError = log_errors > log_err_margin
-                hasSmallError = log_errors < -log_err_margin
-                bad = np.logical_or(
-                    np.logical_and(hasLargeError, marked != 1),
-                    np.logical_and(hasSmallError, marked != -1))
-                reward_dict = {id: bad[id]*np.abs(log_errors[id]) for id in range(self.mesh.GetNE())}
-                
-            else: # two action, 0, F
-                hasLargeError = log_errors > log_err_margin
-                bad = np.logical_or(
-                    np.logical_and(hasLargeError, marked != 1),
-                    np.logical_and(hasSmallError, marked != 0))
-                reward_dict = {id: bad[id]*np.abs(log_errors[id]) for id in range(self.mesh.GetNE())}
-                
-        elif self.refine_mode == 'h':
-            raise NotImplementedError('Cannot create dictionary for h-refinement.')
-        #endregion
-        
-        #region FluxJacobian
-        
         # Compute element-wise Jacobian and Eigen Values
-        Jacobian, eigs = self.solver.ComputeElementAverageFluxJacobian()
-        Jacobian = Jacobian.GetDataArray().reshape((self.solver.vdim**2, self.solver.sdim, self.solver.mesh.GetNE()))
+        Jacobian, _ = self.solver.ComputeElementAverageFluxJacobian()
         
-        # TODO: If h-refinement, then accumulate it over child elements.
-        # something like
-        # Jacobian = colwise_accumarray(elem_to_initElem, Jacobian, op=np.mean)
-        
-        # reweight Jacobian by J*Dt/h
-        Jacobian = Jacobian * (self.regrid_time/self.grid_size.reshape((1, -1)))
-        eigs = eigs.GetDataArray().reshape((self.mesh.GetNE(), -1), order='C')
-        #endregion
-        
-        #region Observation Dict
-        
-        # make element-wise observation obs[:,i] = [error, Jacobians]
-        # elementwise_observation = np.append(errors.reshape(1, self.mesh.GetNE()), Jacobian, axis=0)
-        if self.refine_mode == 'p':
-            observation_dict = {id: np.append([errors[id]], Jacobian[:,:,id].flatten()) for id in range(self.mesh.GetNE())}
-        elif self.refine_mode == 'h':
-            raise NotImplementedError('Cannot create dictionary for h-refinement.')
-        
-        #endregion
+        #endregion Reward and Observation
+        reward_dict = self.compute_reward(log_errors, log_err_margin, marked)
+        observation_dict = self.compute_observation(log_errors, Jacobian)
         
         #region Dict
         if self.refine_mode == 'p':
+            
             done_dict = {id: self.done for id in range(self.mesh.GetNE())}
             done_dict['__all__'] = self.done
+            
             info_dict = {id: {} for id in range(self.mesh.GetNE())}
-            truncated_dict = {id: self.done for id in range(self.mesh.GetNE())}
+            
+            truncated_dict = {id: False for id in range(self.mesh.GetNE())}
             truncated_dict['__all__'] = False
+            
         elif self.refine_mode == 'h':
-            raise NotImplementedError('Cannot create dictionary for h-refinement.')
+            done_dict = {id: self.done for id in range(self.solver._initial_mesh.GetNE())}
+            done_dict['__all__'] = self.done
+
+            info_dict = {id: {} for id in range(self.solver._initial_mesh.GetNE())}
+            
+            truncated_dict = {id: False for id in range(self.solver._initial_mesh.GetNE())}
+            truncated_dict['__all__'] = False
         
         #endregion
         
@@ -294,24 +272,24 @@ class HyperbolicAMREnv(MultiAgentEnv):
         """obs[:,i] = element indices within the window size. Only uniform periodic rectangular mesh is supported.
         """
         sdim = self.solver.sdim
-        obs_map = np.zeros(((self.window_size*2 + 1)**self.solver.sdim, self.solver.mesh.GetNE()), dtype=int)
+        self.obs_map = np.zeros(((self.window_size*2 + 1)**self.solver.sdim, self.mesh.GetNE()), dtype=int)
         
         idx = np.arange(np.prod(self.num_grids)).reshape(self.num_grids)
         if sdim == 1:
             for x_offset in range(self.window_size*2 + 1):
-                obs_map[x_offset,:] = np.roll(idx, (-self.window_size + x_offset))
+                self.obs_map[x_offset,:] = np.roll(idx, (-self.window_size + x_offset))
         elif sdim == 2:
             i = 0
             for y_offset in range(self.window_size*2 + 1):
                 for x_offset in range(self.window_size*2 + 1):
-                    obs_map[i,:] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset), axis=(0,1)).flatten()
+                    self.obs_map[i,:] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset), axis=(0,1)).flatten()
                     i += 1
         elif sdim == 3:
             i = 0
             for z_offset in range(self.window_size*2 + 1):
                 for y_offset in range(self.window_size*2 + 1):
                     for x_offset in range(self.window_size*2 + 1):
-                        obs_map[i,:] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset, -self.window_size + z_offset), axis=(0,1,2))
+                        self.obs_map[i,:] = np.roll(idx, (-self.window_size + x_offset, -self.window_size + y_offset, -self.window_size + z_offset), axis=(0,1,2))
                         i += 1
     
     def compute_threshold(self, errors:mfem.Vector) -> tuple[float, float]:
@@ -333,7 +311,35 @@ class HyperbolicAMREnv(MultiAgentEnv):
         
         return (target, margin)
     
-    def compute_reward(self, errors:mfem.Vector, actions:np.ndarray, target, margin, hasCoarsening=False) -> np.ndarray:
+    def compute_observation(self, log_errors:np.ndarray, Jacobian:mfem.DenseTensor) -> MultiAgentDict:
+        Jacobian = Jacobian.GetDataArray().reshape((self.solver.vdim**2, self.solver.sdim, self.mesh.GetNE()))
+        
+        # TODO: If h-refinement, then accumulate (via mean?) it over child elements.
+        # something like
+        # Jacobian = colwise_accumarray(elem_to_initElem, Jacobian, op=np.mean)
+        
+        #reweight Jacobian by J*Dt/h
+        # Reshape Jacobian so that Jacobian[:,:,i] is related ith element
+        # and Jacobian[:,d,i] is related to d-axis
+        Jacobian = Jacobian.GetDataArray().reshape((self.solver.sdim, -1, self.mesh.GetNE()), order='C')
+        # reweight by J*Dt/h
+        Jacobian = Jacobian * (self.regrid_time/self.grid_size.reshape((-1, 1)))
+        # Reshape so that Jacobian[i,:] is related to ith element
+        Jacobian = Jacobian.reshape((self.mesh.GetNE(), -1), order='C')
+        
+        # observation[i,:] = [error, Jcobian.flatten()]
+        observation = np.append(log_errors.reshape(-1, 1), Jacobian, axis=1)
+        
+        # make element-wise observation obs[:,i] = [error, Jacobians]
+        # elementwise_observation = np.append(errors.reshape(1, self.mesh.GetNE()), Jacobian, axis=0)
+        if self.refine_mode == 'p':
+            observation_dict = {id: observation[self.obs_map[id,:],:].flatten() for id in range(self.mesh.GetNE())}
+        elif self.refine_mode == 'h':
+            raise NotImplementedError('Cannot create dictionary for h-refinement.')
+        
+        return observation_dict
+    
+    def compute_reward(self, log_errors:np.ndarray, log_err_margin:float, marked:np.ndarray) -> MultiAgentDict:
         """Compute rewards based on previous action and current target with margin.
         If error < target - margin and action[i] != coarsening, then reward = |error - target|
         If error > target + margin and action[i] != refining, then reward = |error - taget|
@@ -348,15 +354,26 @@ class HyperbolicAMREnv(MultiAgentEnv):
         Returns:
             np.ndarray: _description_
         """
-        errors = errors.GetDataArray()
+        if self.refine_mode == 'p':
+            if self.allow_coarsening: # three action, C, 0, F
+                hasLargeError = log_errors > log_err_margin
+                hasSmallError = log_errors < -log_err_margin
+                bad = np.logical_or(
+                    np.logical_and(hasLargeError, marked != 1),
+                    np.logical_and(hasSmallError, marked != -1))
+                reward_dict = {id: bad[id]*np.abs(log_errors[id]) for id in range(self.mesh.GetNE())}
+                
+            else: # two action, 0, F
+                hasLargeError = log_errors > log_err_margin
+                bad = np.logical_or(
+                    np.logical_and(hasLargeError, marked != 1),
+                    np.logical_and(hasSmallError, marked != 0))
+                reward_dict = {id: bad[id]*-np.abs(log_errors[id]) for id in range(self.mesh.GetNE())}
+                
+        elif self.refine_mode == 'h':
+            raise NotImplementedError('Cannot create dictionary for h-refinement.')
         
-        hasLargeError = errors > target + margin
-        badChoice = np.logical_and(hasLargeError, np.not_equal(actions, 1))
-        if hasCoarsening:
-            hasSmallError = errors < target - margin
-            badChoice = np.logical_or(np.logical_and(hasSmallError, np.not_equal(actions, -1)))
-        
-        return badChoice*np.abs(errors - target)
+        return reward_dict
     
     def actions_to_marked(self, action_dict:MultiAgentDict) -> np.ndarray:
         marked = [0]*self.mesh.GetNE()
@@ -367,7 +384,11 @@ class HyperbolicAMREnv(MultiAgentEnv):
             marked = marked - 1
         return marked
         
-            
+    def dofler_marking(self, obs_dict:MultiAgentDict) -> MultiAgentDict:
+        err = [0]*self.mesh.GetNE()
+        for id, val in obs_dict.items():
+            err[id] = val[0]
+        
         
     
     @property
